@@ -1,0 +1,12 @@
+{
+    "version": 3,
+    "name": "LAVA II 1s 680mah",
+    "fileName": "lava-1s-680mah",
+    "buildIn": false,
+    "description": "BetaFPV LAVA II 1S HV-LiPo 680mAh, 16.2g, ~10.3 mOhm internal resistance.",
+    "maxVoltageSag": 0.3,
+    "batCellCount": 1,
+    "batCapacityCharged": 680.0,
+    "batCapacity": 680.0,
+    "mass": 0.0162
+}

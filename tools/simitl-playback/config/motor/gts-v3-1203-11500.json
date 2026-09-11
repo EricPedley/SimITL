@@ -1,0 +1,19 @@
+{
+    "version": 3,
+    "name": "RCInPower GTS-V3 1203 11500kV",
+    "fileName": "gts-v3-1203-11500",
+    "buildIn": false,
+    "description": "11500kV 1203 motor for 1S 51mm whoop/toothpick builds. R=0.100 ohm from datasheet; I0 estimated (no published value).",
+    "motorKV": 11500.0,
+    "motorR": 0.1,
+    "motorI0": 0.845,
+    "motorRth": 35.0,
+    "motorCth": 2.5,
+    "motorMaxT": 128.0,
+    "motorImbalance": {
+        "x": 8.0,
+        "y": 4.0,
+        "z": 3.0
+    },
+    "mass": 0.0045
+}

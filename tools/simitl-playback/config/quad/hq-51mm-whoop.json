@@ -1,0 +1,66 @@
+{
+    "version": 4,
+    "name": "HQ 51mm 1S Whoop",
+    "fileName": "hq-51mm-whoop",
+    "buildIn": false,
+    "description": "Optimized 51mm 1S build: GTS-V3 1203-11500 + HQProp 51mmx2 on LAVA II 680mAh. Physics from wing_optimization calibration. invInertia from multirotor/quad_inertia.py (Ixx 3.83e-5, Iyy 7.65e-5, Izz 4.86e-5 kg.m^2).",
+    "frameDragArea": {
+        "x": 0.0032,
+        "y": 0.003,
+        "z": 0.0032
+    },
+    "frameDragConstant": 1.2,
+    "mass": 0.0424,
+    "invInertia": {
+        "x": 26121.0,
+        "y": 13076.0,
+        "z": 20590.0
+    },
+    "gyroBaseNoiseAmp": 0.015,
+    "gyrobaseNoiseFreq": 333.0,
+    "frameHarmonic1Amp": 0.01,
+    "frameHarmonic1Freq": 300.0,
+    "frameHarmonic2Amp": 0.003,
+    "frameHarmonic2Freq": 600.0,
+    "minPropWashSpeed": 1.0,
+    "maxPropWashSpeed": 8.0,
+    "propWashAngleOfAttack": 0.15,
+    "propWashFactor": 1.0,
+    "maxGroundEffectDist": 0.15,
+    "motor1Pos": {
+        "x": 0.0425,
+        "y": 0.005,
+        "z": -0.028
+    },
+    "motor2Pos": {
+        "x": 0.0425,
+        "y": 0.005,
+        "z": 0.028
+    },
+    "motor3Pos": {
+        "x": -0.0425,
+        "y": 0.005,
+        "z": -0.028
+    },
+    "motor4Pos": {
+        "x": -0.0425,
+        "y": 0.005,
+        "z": 0.028
+    },
+    "motor1Dir": -1.0,
+    "motor2Dir": 1.0,
+    "motor3Dir": 1.0,
+    "motor4Dir": -1.0,
+    "motorVariance": {
+        "x": 0.97,
+        "y": 0.98,
+        "z": 0.965,
+        "w": 1.01
+    },
+    "motor": "RCInPower GTS-V3 1203 11500kV",
+    "propeller": "HQProp 51mmx2",
+    "battery": "LAVA II 1s 680mah",
+    "vtx": "25mW analog vtx",
+    "soundMaxRpm": 40000.0,
+    "model": "hq-51mm-whoop"
+}

@@ -1,0 +1,22 @@
+{
+    "version": 2,
+    "name": "HQProp 51mmx2",
+    "fileName": "hqprop-51mmx2",
+    "buildIn": false,
+    "description": "51mm 2-blade prop (38.1mm pitch, P/D 0.75). Thrust/torque factors from the wing_optimization factor-graph reduced-order model.",
+    "bladeCount": 2,
+    "propMaxRpm": 30000.0,
+    "propAudioPitch": 1.1,
+    "propAFactor": 5.274637110065455e-10,
+    "propTorqueFactor": 0.006582299589055553,
+    "propInertia": 1.1540637e-7,
+    "propThrustFactor": {
+        "x": 0.0,
+        "y": -0.009626460997718453,
+        "z": 0.47471733990589093
+    },
+    "propHarmonic1Amp": 0.1,
+    "propHarmonic2Amp": 0.3,
+    "mass": 0.00036,
+    "durability": 1.0
+}
