@@ -1,9 +1,9 @@
 {
     "version": 4,
-    "name": "HQ 51mm 1S Whoop",
-    "fileName": "hq-51mm-whoop",
+    "name": "HQ 51mm 1S Micro Freestyle",
+    "fileName": "hq-51mm-micro",
     "buildIn": false,
-    "description": "Optimized 51mm 1S build: GTS-V3 1203-11500 + HQProp 51mmx2 on LAVA II 680mAh. Physics from wing_optimization calibration. invInertia from multirotor/quad_inertia.py (Ixx 3.83e-5, Iyy 7.65e-5, Izz 4.86e-5 kg.m^2).",
+    "description": "Optimized 51mm 1S micro freestyle build: GTS-V3 1203-11500 + HQProp 51mmx2 on LAVA II 680mAh. Physics from wing_optimization calibration. invInertia from multirotor/quad_inertia.py (Ixx 3.83e-5, Iyy 7.65e-5, Izz 4.86e-5 kg.m^2).",
     "frameDragArea": {
         "x": 0.0032,
         "y": 0.003,
@@ -62,5 +62,5 @@
     "battery": "LAVA II 1s 680mah",
     "vtx": "25mW analog vtx",
     "soundMaxRpm": 40000.0,
-    "model": "hq-51mm-whoop"
+    "model": "hq-51mm-micro"
 }
