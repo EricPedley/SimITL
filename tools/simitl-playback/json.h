@@ -44,10 +44,11 @@ namespace json {
 // ---------------------------------------------------------------------------
 class JsonObject {
 public:
-  enum Type { Null, Number, String, Object, Array };
+  enum Type { Null, Number, String, Bool, Object, Array };
 
   Type   type         = Null;
   double numberValue  = 0.0;
+  bool   boolValue    = false;
   std::string stringValue;
   std::vector<std::pair<std::string, JsonObject>> members;
   std::vector<JsonObject> elements;
@@ -77,6 +78,12 @@ public:
 
   double asNumber(double def = 0.0) const {
     return type == Number ? numberValue : def;
+  }
+
+  bool asBool(bool def = false) const {
+    if (type == Bool) return boolValue;
+    if (type == Number) return numberValue != 0.0;
+    return def;
   }
 
   int asInt(int def = 0) const {
@@ -243,8 +250,8 @@ private:
       return obj;
     }
     // boolean / null – not used in our configs, return null
-    if (c == 't') { m_pos += 4; return {}; }  // true
-    if (c == 'f') { m_pos += 5; return {}; }  // false
+    if (c == 't') { m_pos += 4; JsonObject obj; obj.type = JsonObject::Bool; obj.boolValue = true; return obj; }
+    if (c == 'f') { m_pos += 5; JsonObject obj; obj.type = JsonObject::Bool; obj.boolValue = false; return obj; }
     if (c == 'n') { m_pos += 4; return {}; }  // null
 
     throw std::runtime_error("json: unexpected character");

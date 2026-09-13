@@ -131,6 +131,12 @@ struct StateInput{
 
   // 1: bypass Betaflight PID and use motorPwm[] directly
   uint8_t openLoop = 0;
+
+  // 1: keep the quad fixed in space (linear velocity forced to zero each
+  // physics step) without bypassing the controller. Used to isolate rate
+  // control experiments from ballistic descent and velocity-driven aero
+  // moments.
+  uint8_t pinVelocity = 0;
 };
 
 //simulation output for game

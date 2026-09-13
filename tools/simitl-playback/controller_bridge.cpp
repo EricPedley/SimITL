@@ -103,6 +103,7 @@ class Bridge {
   SimITL::Sim& sim = SimITL::Sim::getInstance();
   bool initialized = false;
   bool external = true;
+  bool pinVelocity = false;
   uint64_t elapsedTicks = 0;
   uint64_t bootTimeUs = 0;
   unsigned seed = 1;
@@ -112,6 +113,7 @@ class Bridge {
     StateInput input = sim.mSimState.stateInput;
     input.delta = static_cast<float>(delta);
     input.openLoop = 0;
+    input.pinVelocity = pinVelocity ? 1 : 0;
     input.contact = held ? 1 : 0;
     if (held) {
       input.rotation[0] = {1, 0, 0};
@@ -141,6 +143,7 @@ class Bridge {
     if (requestedSeed < 0 || requestedSeed > std::numeric_limits<unsigned>::max() ||
         std::floor(requestedSeed) != requestedSeed) throw std::runtime_error("Invalid seed");
     seed = static_cast<unsigned>(requestedSeed);
+    pinVelocity = request.has("pin_velocity") && request.get("pin_velocity").asBool();
     const auto configPath = std::filesystem::absolute(request.get("quad_config").asString());
     const auto cfg = loadQuadConfig(configPath.string());
     std::filesystem::path eepromSource;
@@ -238,7 +241,8 @@ class Bridge {
     out << std::setprecision(17);
     out << "{\"ok\":true,\"mode\":" << quote(external ? "external" : "bf")
         << ",\"seed\":" << seed << ",\"workdir\":" << quote(workdir.string())
-        << ",\"open_loop\":0,\"time_s\":" << elapsedTicks * tickSeconds
+        << ",\"open_loop\":0,\"pin_velocity\":" << (pinVelocity ? "true" : "false")
+        << ",\"time_s\":" << elapsedTicks * tickSeconds
         << ",\"sim_time_us\":" << s.microsPassed << ",\"boot_time_us\":" << bootTimeUs
         << ",\"gyro_time_s\":" << (static_cast<double>(elapsedTicks) - 1) * tickSeconds
         << ",\"armed\":" << (s.armed ? "true" : "false")

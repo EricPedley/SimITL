@@ -724,9 +724,9 @@ float Physics::motorTorque(float volts, float rpm, float kV, float R, float I0) 
 
     linearVelocity = linearVelocity + acceleration * dt;
 
-    // lock quad in open loop
-    if(mSimState->stateInput.openLoop == 1){
-      linearVelocity = {0.0f, 0.0f, 0.0f}; 
+    // lock quad translation in open loop or when pinned for rate experiments
+    if(mSimState->stateInput.openLoop == 1 || mSimState->stateInput.pinVelocity == 1){
+      linearVelocity = {0.0f, 0.0f, 0.0f};
     }
 
     assert(std::isfinite(length(linearVelocity)));
