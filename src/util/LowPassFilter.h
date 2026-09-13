@@ -32,6 +32,8 @@ namespace SimITL{
     ePow = 1.0f - exp(-deltaTime * 2.0f * M_PI * cutoffFrequency);
   }
 
+  float get() const { return output; }
+
   private:
     float output;
     float ePow;

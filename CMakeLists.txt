@@ -20,7 +20,7 @@ endif ()
 set(CMAKE_SIZEOF_VOID_P 8)  # Enforces 64-bit pointer size
 set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -O2")  # -g -O0
 
-# sitl lib 
+# sitl lib
 #  used by the SimITL executable which contains the betaflight sitl target and extensions
 add_subdirectory(extern/)
 
@@ -38,7 +38,7 @@ add_subdirectory(tools/simitl-tester)
 # enables playback of ghosts from pr0p
 add_subdirectory(tools/simitl-playback)
 
-install(TARGETS simitl-playback simitl-tester SimITL sitl simitlsharedmem
+install(TARGETS simitl-controller-bridge simitl-playback simitl-tester SimITL sitl simitlsharedmem
         RUNTIME DESTINATION bin           COMPONENT Runtime
         LIBRARY DESTINATION bin           COMPONENT Runtime
         ARCHIVE DESTINATION lib/simitl    COMPONENT Development)

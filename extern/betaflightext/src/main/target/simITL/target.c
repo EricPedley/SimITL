@@ -28,6 +28,7 @@
 #include <time.h>
 
 #include "common/maths.h"
+#include "common/crc.h"
 
 #include "drivers/adc.h"
 #include "drivers/io.h"
@@ -39,6 +40,8 @@
 #include "drivers/time.h"
 #include "drivers/pwm_output.h"
 #include "drivers/pwm_output_impl.h"
+#include "drivers/dshot.h"
+#include "drivers/dshot_command.h"
 #include "drivers/light_led.h"
 
 #include "drivers/timer.h"
@@ -57,6 +60,8 @@ const timerHardware_t timerHardware[1]; // unused
 #include "config/config_eeprom_impl.h"
 #include "scheduler/scheduler.h"
 
+#include "pg/pg.h"
+#include "pg/pg_ids.h"
 #include "pg/rx.h"
 #include "pg/motor.h"
 
@@ -255,8 +260,173 @@ bool motorPwmDevInit(motorDevice_t *device, const motorDevConfig_t *motorConfig,
       pwmMotors[motorIndex].enabled = true;
   }
 
+#ifdef USE_DSHOT_TELEMETRY
+  // The simulated ESCs always provide eRPM telemetry, like bidirectional
+  // DSHOT hardware would. Config validation clears dev.useDshotTelemetry
+  // when the configured motor protocol is not a DSHOT one, so turn it back
+  // on here, before initDshotTelemetry() and rpmFilterInit() run during
+  // init().
+  motorConfigMutable()->dev.useDshotTelemetry = DSHOT_TELEMETRY_ON;
+  useDshotTelemetry = true;
+  dshotMotorCount = motorCount;
+#endif
+
   return true;
 }
+
+#ifdef USE_DSHOT
+// Fake DSHOT motor device so a dshot motor_pwm_protocol still drives the
+// simulated motors: map the dshot command/throttle range (DSHOT_MIN_THROTTLE
+// .. DSHOT_MAX_THROTTLE) onto the same normalized 0..1000 range that the PWM
+// write path leaves in motorsPwm[].
+static void pwmWriteDshotMotor(uint8_t index, float value)
+{
+    if (index < MAX_SUPPORTED_MOTORS) {
+        motorsPwm[index] = (value < DSHOT_MIN_THROTTLE) ? 0
+            : (int16_t)((value - DSHOT_MIN_THROTTLE) * (1000.0f / DSHOT_RANGE));
+    }
+}
+
+static void pwmWriteDshotMotorInt(uint8_t index, uint16_t value)
+{
+    pwmWriteDshotMotor(index, (float)value);
+}
+
+static const motorVTable_t dshotVTable = {
+  .postInit = motorPostInitNull,
+  .convertExternalToMotor = dshotConvertFromExternal,
+  .convertMotorToExternal = dshotConvertToExternal,
+  .enable = pwmEnableMotors,
+  .disable = pwmDisableMotors,
+  .isMotorEnabled = pwmIsMotorEnabled,
+  .decodeTelemetry = motorDecodeTelemetryNull,
+  .write = pwmWriteDshotMotor,
+  .writeInt = pwmWriteDshotMotorInt,
+  .updateComplete = pwmCompleteMotorUpdate,
+  .shutdown = pwmShutdownPulsesForAllMotors,
+  .requestTelemetry = NULL,
+  .isMotorIdle = NULL,
+  .getMotorIO = NULL,
+};
+
+bool dshotPwmDevInit(motorDevice_t *device, const motorDevConfig_t *motorDevConfig)
+{
+    UNUSED(motorDevConfig);
+
+    if (!device) {
+        return false;
+    }
+    device->vTable = &dshotVTable;
+    pwmMotorCount = device->count;
+
+    for (int motorIndex = 0; motorIndex < MAX_SUPPORTED_MOTORS && motorIndex < pwmMotorCount; motorIndex++) {
+        pwmMotors[motorIndex].enabled = true;
+    }
+
+#ifdef USE_DSHOT_TELEMETRY
+    // The simulated ESCs always provide eRPM telemetry, like bidirectional
+    // DSHOT hardware would; enable it even if dshot_bidir is off in the
+    // loaded config.
+    motorConfigMutable()->dev.useDshotTelemetry = DSHOT_TELEMETRY_ON;
+    useDshotTelemetry = true;
+    dshotMotorCount = pwmMotorCount;
+#endif
+
+    return true;
+}
+#endif // USE_DSHOT
+
+// Stub out the DSHOT command machinery (beacons, spin direction, ESC info,
+// extended telemetry enable). There is no real ESC to send commands to, but
+// dshotStreamingCommandsAreEnabled() must report true: core.c refuses to
+// clear ARMING_DISABLED_BOOT_GRACE_TIME for DSHOT protocols otherwise (the
+// real implementation waits for motorEnableTimeMs, which is stuck at 0 in
+// the sim since motorEnable() runs at millis()==0).
+void dshotCommandWrite(uint8_t index, uint8_t motorCount, uint8_t command, dshotCommandType_e commandType)
+{
+    UNUSED(index);
+    UNUSED(motorCount);
+    UNUSED(command);
+    UNUSED(commandType);
+}
+
+void dshotSetPidLoopTime(uint32_t pidLoopTime)
+{
+    UNUSED(pidLoopTime);
+}
+
+bool dshotCommandQueueEmpty(void)
+{
+    return true;
+}
+
+bool dshotCommandIsProcessing(void)
+{
+    return false;
+}
+
+uint8_t dshotCommandGetCurrent(unsigned index)
+{
+    UNUSED(index);
+    return 0;
+}
+
+bool dshotCommandOutputIsEnabled(unsigned motorCount)
+{
+    UNUSED(motorCount);
+    return true;
+}
+
+bool dshotStreamingCommandsAreEnabled(void)
+{
+    return true;
+}
+
+#ifdef USE_DSHOT_TELEMETRY
+// Simulated ESC telemetry: mirrors what pwmTelemetryDecode() does on real
+// hardware after receiving the ESC's telemetry frame. The frame carries the
+// commutation period (us per electrical revolution) encoded as
+// (period & 0x1ff) << (period >> 9); see dshot_decode_eRPM_telemetry_value().
+// The raw frame is decoded by updateDshotTelemetry() in the filter task.
+dshotTelemetryCycleCounters_t dshotDMAHandlerCycleCounters;
+
+static uint16_t sitlDshotEncodeErpm(float erpm)
+{
+    if (!(erpm > 0.0f)) {
+        return 0x0fff; // decodes to zero eRPM
+    }
+    uint32_t period = (uint32_t)lrintf(60000000.0f / erpm);
+    if (period < 1) {
+        period = 1;
+    }
+    if (period > 0xffff) {
+        // dshot_decode_eRPM_telemetry_value() reconstructs the period into a
+        // uint16_t, so frames with period > 65535us (eRPM < ~915) decode as
+        // invalid and would leave a stale value. Report the stopped sentinel
+        // like a real ESC does.
+        return 0x0fff;
+    }
+    uint32_t shift = 0;
+    while (period > 0x1ff && shift < 0x7f) {
+        period >>= 1;
+        shift++;
+    }
+    return (uint16_t)((shift << 9) | (period & 0x1ff));
+}
+
+void sitlDshotTelemetryFeedErpm(uint8_t motorIndex, float erpm)
+{
+    if (motorIndex < MAX_SUPPORTED_MOTORS) {
+        dshotTelemetryState.motorState[motorIndex].rawValue = sitlDshotEncodeErpm(erpm);
+    }
+}
+
+void sitlDshotTelemetryFeedDone(void)
+{
+    dshotTelemetryState.rawValueState = DSHOT_RAW_VALUE_STATE_NOT_PROCESSED;
+    dshotTelemetryState.readCount++;
+}
+#endif // USE_DSHOT_TELEMETRY
 
 // ADC part
 uint16_t adcGetChannel(uint8_t channel)
@@ -273,6 +443,102 @@ char _Min_Stack_Size;
 static FILE *eepromFd = NULL;
 
 char * EEPROM_FILENAME = 0;
+
+// Mirrors the private configRecord_t layout used by
+// betaflight/src/main/config/config_eeprom.c: the image starts with a 2-byte
+// header {eepromConfigVersion, 0xBE magic}, followed by these records, a
+// zero-size terminator and a stored CRC word chosen so that the CRC over the
+// whole image (including itself) is the fixed residue value.
+typedef struct {
+    uint16_t size;      // includes this 6-byte header
+    uint16_t pgn;
+    uint8_t  version;
+    uint8_t  flags;
+    uint8_t  pg[];
+} PG_PACKED sitlConfigRecord_t;
+
+// loadEEPROM() reports failure when a parameter group compiled into this
+// build has no record in the image, which makes init() reset the entire
+// configuration to defaults. Whenever the compiled PG set grows (e.g.
+// USE_DSHOT adds PG_ESC_SENSOR_CONFIG and USE_RPM_FILTER adds
+// PG_RPM_FILTER_CONFIG), any eeprom file written by an older build would
+// silently lose every setting - including mixerConfig.yaw_motors_reversed
+// and the motor protocol, which changes closed-loop behavior. Appending a
+// record carrying each missing group's reset defaults lets the normal load
+// path keep the stored configuration, matching what a real FC does when a
+// new parameter group is introduced.
+static void sitlEepromAppendMissingPgRecords(void)
+{
+    if (eepromData[1] != 0xBE) {
+        return; // empty or foreign image; the normal load path handles it
+    }
+
+    // locate the zero-size terminator record
+    uint8_t *terminator = NULL;
+    uint8_t *p = eepromData + 2;
+    while (p + sizeof(sitlConfigRecord_t) <= ARRAYEND(eepromData)) {
+        const sitlConfigRecord_t *rec = (const sitlConfigRecord_t *)p;
+        if (rec->size == 0) {
+            terminator = p;
+            break;
+        }
+        if (rec->size < sizeof(sitlConfigRecord_t)
+            || p + rec->size > ARRAYEND(eepromData)) {
+            return; // malformed image; leave it for the normal validity checks
+        }
+        p += rec->size;
+    }
+    if (!terminator) {
+        return;
+    }
+
+    uint8_t *appendAt = terminator;
+    int appended = 0;
+    PG_FOREACH(reg) {
+        const uint16_t pgn = pgN(reg);
+        bool present = false;
+        for (const uint8_t *q = eepromData + 2; q < terminator; ) {
+            const sitlConfigRecord_t *rec = (const sitlConfigRecord_t *)q;
+            if (rec->pgn == pgn && !(rec->flags & 0x3)) {
+                present = true;
+                break;
+            }
+            q += rec->size;
+        }
+        if (present) {
+            continue;
+        }
+        const uint16_t recordSize = sizeof(sitlConfigRecord_t) + pgSize(reg);
+        if (appendAt + recordSize + 4 > ARRAYEND(eepromData)) {
+            break; // no room; let the normal load path report the failure
+        }
+        pgReset(reg); // populate reg->address with the group's reset defaults
+        sitlConfigRecord_t *rec = (sitlConfigRecord_t *)appendAt;
+        rec->size = recordSize;
+        rec->pgn = pgn;
+        rec->version = pgVersion(reg);
+        rec->flags = 0;
+        memcpy(rec->pg, reg->address, pgSize(reg));
+        fprintf(stderr, "[FLASH_Unlock] appended record for pgn %d (version %d, size %d)\n",
+                (int)pgn, (int)pgVersion(reg), (int)pgSize(reg));
+        appendAt += recordSize;
+        appended++;
+    }
+    if (!appended) {
+        return;
+    }
+
+    // terminator + stored CRC (inverted, big-endian CRC16 over everything
+    // before it), matching writeSettingsToEEPROM() in config_eeprom.c.
+    appendAt[0] = 0;
+    appendAt[1] = 0;
+    uint16_t crc = 0xFFFF;
+    crc = crc16_ccitt_update(crc, eepromData, (appendAt + 2) - eepromData);
+    const uint16_t storedCrc = ~(((crc & 0xFF) << 8) | (crc >> 8));
+    memcpy(appendAt + 2, &storedCrc, sizeof(storedCrc));
+    printf("[FLASH_Unlock] appended %d missing PG record(s) to '%s'\n",
+           appended, EEPROM_FILENAME);
+}
 
 bool loadEEPROMFromFile(void)
 {
@@ -298,6 +564,7 @@ bool loadEEPROMFromFile(void)
                    EEPROM_FILENAME,
                    lSize,
                    sizeof(eepromData));
+            sitlEepromAppendMissingPgRecords();
         } else {
             fprintf(stderr,
                     "[FLASH_Unlock] failed to load '%s, %ld < %ld'\n",

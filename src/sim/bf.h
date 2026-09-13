@@ -39,7 +39,7 @@ namespace SimITL{
     void setEepromFileName(const char* filename = "eeprom.bin");
 
     /**
-     * \brief Updates the virtual fc's data with the provided state, 
+     * \brief Updates the virtual fc's data with the provided state,
      * performs a betaflight schedule or sleeps and updates the state.
      * \param[in] delta Time delta in micro seconds.
      * \param[in] simState The state that is writen to the fc.
@@ -54,6 +54,38 @@ namespace SimITL{
      * \param[in] value The value.
      */
     void setDebugValue(uint8_t mode, uint8_t index, int16_t value);
+
+    struct ControllerTelemetry {
+      std::array<float, 3> gyroDegS{};
+      std::array<float, 3> setpointDegS{};
+      std::array<float, 4> motorPwm{};
+      // mechanical motor RPM as decoded from the emulated bidirectional
+      // DSHOT telemetry frames (getDshotRpm()), i.e. what betaflight sees
+      std::array<float, 4> motorRpm{};
+      // raw eRPM telemetry values as decoded by betaflight (getDshotErpm()),
+      // the same units that show up in blackbox logs (eRPM / 100)
+      std::array<float, 4> motorErpm{};
+      std::array<float, 8> rcDataUs{};
+      std::array<float, 4> rcCommand{};
+      std::array<float, 3> rawSetpointDegS{};
+      std::array<float, 3> attitudeDeg{};
+      std::array<float, 3> pidSetpointDegS{};
+      bool crashRecovery = false;
+      bool launchControl = false;
+      uint32_t flightModeFlags = 0;
+      float maxVelocityR = 0;
+      bool itermRotation = false;
+      float acGain = 0;
+      bool acroTrainer = false;
+      bool pidEnabled = false;
+      bool calibrated = false;
+      bool armed = false;
+      bool dshotTelemetryActive = false;
+    };
+
+    ControllerTelemetry getControllerTelemetry();
+    void setTelemetryMotorPwm(const std::array<float, 4>& pwm);
+    void configureBridgeArming();
 
     void updateSerial();
     void stopSerial();

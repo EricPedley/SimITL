@@ -44,12 +44,13 @@ namespace json {
 // ---------------------------------------------------------------------------
 class JsonObject {
 public:
-  enum Type { Null, Number, String, Object };
+  enum Type { Null, Number, String, Object, Array };
 
   Type   type         = Null;
   double numberValue  = 0.0;
   std::string stringValue;
   std::vector<std::pair<std::string, JsonObject>> members;
+  std::vector<JsonObject> elements;
 
   // -- query helpers -------------------------------------------------------
 
@@ -122,6 +123,13 @@ public:
     skipWhitespace();
     if (peek() == '{') return parseObject();
     throw std::runtime_error("json: expected top-level object");
+  }
+
+  JsonObject parseComplete() {
+    auto result = parse();
+    skipWhitespace();
+    if (!atEnd()) throw std::runtime_error("json: trailing input");
+    return result;
   }
 
 private:
@@ -221,6 +229,7 @@ private:
     char c = peek();
 
     if (c == '{') return parseObject();
+    if (c == '[') return parseArray();
     if (c == '"') {
       JsonObject obj;
       obj.type        = JsonObject::String;
@@ -239,6 +248,25 @@ private:
     if (c == 'n') { m_pos += 4; return {}; }  // null
 
     throw std::runtime_error("json: unexpected character");
+  }
+
+  JsonObject parseArray() {
+    JsonObject obj;
+    obj.type = JsonObject::Array;
+    expect('[');
+    skipWhitespace();
+    if (peek() != ']') {
+      while (true) {
+        obj.elements.push_back(parseValue());
+        skipWhitespace();
+        if (peek() == ']') break;
+        expect(',');
+        skipWhitespace();
+        if (peek() == ']') throw std::runtime_error("json: trailing array comma");
+      }
+    }
+    expect(']');
+    return obj;
   }
 
   JsonObject parseObject() {

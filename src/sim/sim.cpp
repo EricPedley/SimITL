@@ -3,6 +3,8 @@
 #include <chrono>
 #include <cstdint>
 #include <stdio.h>
+#include <cmath>
+#include <stdexcept>
 
 namespace SimITL{
 
@@ -21,10 +23,10 @@ namespace SimITL{
   }
 
   Sim::~Sim() {
-    running = false;          // signal the wsThread to exit                             
-    //if(wsThread.joinable()) {                                                            
-    //  wsThread.join();      // wait for it                                             
-    //} 
+    running = false;          // signal the wsThread to exit
+    //if(wsThread.joinable()) {
+    //  wsThread.join();      // wait for it
+    //}
   }
 
   std::chrono::system_clock::time_point start;
@@ -40,15 +42,37 @@ namespace SimITL{
   }
 
   void Sim::init(const StateInit& stateInit) {
-    running = true;
+    initImpl(stateInit, true);
+  }
 
-    if(!wsThreadRunning){
+  void Sim::initHeadless(const StateInit& stateInit) {
+    initImpl(stateInit, false);
+  }
+
+  void Sim::setMotorOverride(const std::array<float, 4>& pwm) {
+    for (float value : pwm) {
+      if (!std::isfinite(value) || value < 0.0f || value > 1.0f) {
+        throw std::invalid_argument("Motor PWM must be finite and in [0,1]");
+      }
+    }
+    motorOverride = pwm;
+  }
+
+  void Sim::clearMotorOverride() {
+    motorOverride.reset();
+  }
+
+  void Sim::initImpl(const StateInit& stateInit, bool serialThread) {
+    running = true;
+    motorOverride.reset();
+
+    if(serialThread && !wsThreadRunning){
       fmt::print("Starting ws update thread\n");
       wsThread = std::thread(wsUpdateThread, this);
     }
 
     mPhysics.initState(stateInit);
-    
+
     //reset rc data to valid data...
     BF::resetRcData();
 
@@ -76,7 +100,7 @@ namespace SimITL{
     if(stateUpdateDelta < static_cast<int64_t>(0)){
       stateUpdateDelta = static_cast<int64_t>(1);
     }
-    
+
     total_delta += stateUpdateDelta;
 
     if (!stateInput.openLoop) {
@@ -85,7 +109,7 @@ namespace SimITL{
     }
 
     mPhysics.updateState(stateInput);
-    
+
     //rc data is updated independently
     simStep();
   }
@@ -104,7 +128,7 @@ namespace SimITL{
       const double dt = static_cast<double>(DELTA) / 1e6f;
 
       mPhysics.updateGyro(dt);
-  
+
       if (mSimState.stateInput.openLoop) {
           // Open-loop: drive motors directly from input, bypassing Betaflight PID
           for (int i = 0; i < 4; i++) {
@@ -113,6 +137,13 @@ namespace SimITL{
       } else {
           // Closed-loop: run Betaflight PID to compute motor outputs from RC
           BF::update(DELTA, mSimState);
+          if (motorOverride) {
+              mSimState.armed = true;
+              for (int i = 0; i < 4; i++) {
+                  mSimState.motorsState[i].pwm = (*motorOverride)[i];
+              }
+              BF::setTelemetryMotorPwm(*motorOverride);
+          }
       }
 
       mPhysics.updatePhysics(dt);

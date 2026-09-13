@@ -15,7 +15,101 @@ namespace SimITL{
   const static auto ACC_SCALE = (256 / 9.80665f);
 
   namespace BF {
-    
+    extern "C" {
+      #include "config/config.h"
+      #include "fc/core.h"
+      #include "fc/rc.h"
+      #include "fc/rc_modes.h"
+      #include "fc/rc_controls.h"
+      #include "flight/pid.h"
+      #include "flight/pid_init.h"
+      #include "flight/mixer.h"
+      #include "flight/failsafe.h"
+      #include "flight/imu.h"
+      #include "drivers/dshot.h"
+      #include "drivers/motor.h"
+      #include "rx/rx.h"
+      #include "sensors/gyro.h"
+      #include "blackbox/blackbox.h"
+      #include "config/feature.h"
+    }
+
+    ControllerTelemetry getControllerTelemetry() {
+      ControllerTelemetry result;
+      for (int i = 0; i < 3; i++) {
+        result.gyroDegS[i] = gyro.gyroADCf[i];
+        result.setpointDegS[i] = getSetpointRate(i);
+        result.rawSetpointDegS[i] = getRawSetpointRate(i);
+        result.pidSetpointDegS[i] = pidGetPreviousSetpoint(i);
+      }
+      for (int i = 0; i < 4; i++) {
+        result.motorPwm[i] = motorsPwm[i] / 1000.0f;
+      }
+#ifdef USE_DSHOT_TELEMETRY
+      for (int i = 0; i < 4; i++) {
+        result.motorRpm[i] = getDshotRpm(i);
+        result.motorErpm[i] = getDshotErpm(i);
+      }
+      result.dshotTelemetryActive = isDshotTelemetryActive();
+#endif
+      for (int i = 0; i < 8; i++) {
+        result.rcDataUs[i] = rcData[i];
+      }
+      for (int i = 0; i < 4; i++) {
+        result.rcCommand[i] = BF::rcCommand[i];
+      }
+      result.calibrated = gyroIsCalibrationComplete();
+      result.armed = (armingFlags & ARMED) != 0;
+      result.crashRecovery = crashRecoveryModeActive();
+      result.launchControl = isLaunchControlActive();
+      result.flightModeFlags = flightModeFlags;
+      result.maxVelocityR = pidRuntime.maxVelocity[0];
+      result.itermRotation = pidRuntime.itermRotation;
+      result.acGain = pidRuntime.acGain;
+      result.acroTrainer = false;
+      result.pidEnabled = pidRuntime.pidStabilisationEnabled;
+      for (int i = 0; i < 3; i++) {
+        result.attitudeDeg[i] = attitude.raw[i] / 10.0f;
+      }
+      return result;
+    }
+
+    void setTelemetryMotorPwm(const std::array<float, 4>& pwm) {
+      for (int i = 0; i < 4; i++) {
+        motorsPwm[i] = static_cast<int16_t>(std::lroundf(pwm[i] * 1000.0f));
+      }
+    }
+
+    void configureBridgeArming() {
+      for (int i = 0; i < MAX_MODE_ACTIVATION_CONDITION_COUNT; i++) {
+        *modeActivationConditionsMutable(i) = {};
+      }
+      auto* arm = modeActivationConditionsMutable(0);
+      arm->modeId = BOXARM;
+      arm->auxChannelIndex = 0;
+      arm->range.startStep = 32;
+      arm->range.endStep = 48;
+      rcControlsInit();
+      pidConfigMutable()->runaway_takeoff_prevention = 0;
+      // Absolute control + iterm rotation inject earth-frame corrections into
+      // previousPidSetpoint during max-rate steps, which shows up as phantom
+      // roll/pitch setpoints in blackbox logs. Disable them so the logged
+      // setpoint is the stick-derived rate reference.
+      currentPidProfile->abs_control_gain = 0;
+      currentPidProfile->iterm_rotation = 0;
+      pidInit(currentPidProfile);
+#ifdef USE_BLACKBOX
+      // The simulated blackbox device writes blackbox.bbl in the cwd (the
+      // bridge workdir). If the loaded config has blackbox disabled, enable
+      // the serial (file) device so logs are available; re-run blackboxInit
+      // so the state machine leaves BLACKBOX_STATE_DISABLED.
+      if (blackboxConfig()->device == BLACKBOX_DEVICE_NONE) {
+        blackboxConfigMutable()->device = BLACKBOX_DEVICE_SERIAL;
+        blackboxInit();
+      }
+#endif
+    }
+
     void resetRcData(){
       //reset rc data to valid data...
       for(int i = 0; i < SIMULATOR_MAX_RC_CHANNELS; i++){
@@ -122,6 +216,26 @@ namespace SimITL{
       }
     }
 
+    // Feed the emulated bidirectional DSHOT telemetry: report each motor's
+    // physics rpm as eRPM frames so updateDshotTelemetry() (running in the
+    // betaflight FILTER task) decodes them like real ESC replies. Works in
+    // both 'bf' and 'external' modes since motorsState[].rpm is always the
+    // true physics rpm.
+    void updateEscTelemetry(const SimState& simState){
+#ifdef USE_DSHOT_TELEMETRY
+      if (!useDshotTelemetry) {
+        return;
+      }
+      const int polePairs = std::max(1, (int)motorConfig()->motorPoleCount / 2);
+      for (int i = 0; i < 4; i++) {
+        sitlDshotTelemetryFeedErpm(i, std::fabs(simState.motorsState[i].rpm) * polePairs);
+      }
+      sitlDshotTelemetryFeedDone();
+#else
+      (void)simState;
+#endif
+    }
+
     void updateOsd(SimState& simState){
       bool osdChanged = false;
       for (int y = 0; y < VIDEO_LINES; y++) {
@@ -135,10 +249,11 @@ namespace SimITL{
       bool schedulerExecuted = false;
 
       BF::micros_passed += dt;
-      
+
       updateBattery(simState);
       updateGyroAcc(simState);
       updateGps(simState);
+      updateEscTelemetry(simState);
 
       if (BF::sleep_timer > 0) {
         BF::sleep_timer -= dt;

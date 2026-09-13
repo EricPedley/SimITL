@@ -52,7 +52,10 @@ namespace SimITL{
 
     // initialize
     void init(const StateInit& stateInit);
-    // update physics params 
+    void initHeadless(const StateInit& stateInit);
+    void setMotorOverride(const std::array<float, 4>& pwm);
+    void clearMotorOverride();
+    // update physics params
     void reinitPhysics(const StateInit& stateInit);
     // update the simulation according to new inputs
     void update(const StateInput& stateInput);
@@ -82,6 +85,8 @@ namespace SimITL{
     Physics mPhysics{};
 
   private:
+    void initImpl(const StateInit& stateInit, bool serialThread);
+    std::optional<std::array<float, 4>> motorOverride;
     uint16_t rc_data[16] {};
     uint32_t rcDataReceptionTimeUs;
 
@@ -126,7 +131,7 @@ namespace SimITL{
     // protected for testing
   protected:
     Sim();
-    
+
   };
 
 }

@@ -120,6 +120,13 @@ extern char* EEPROM_FILENAME;
 #define USE_MAX7456
 #define USE_PWM_OUTPUT
 
+// Simulated ESCs emulate bidirectional DSHOT and report eRPM telemetry.
+#if !defined(SIM_NO_DSHOT)
+#define USE_DSHOT
+#define USE_DSHOT_TELEMETRY
+#define USE_RPM_FILTER
+#endif
+
 #define USE_RC_SMOOTHING_FILTER
 #define USE_BATTERY_VOLTAGE_SAG_COMPENSATION
 

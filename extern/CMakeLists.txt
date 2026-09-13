@@ -130,6 +130,7 @@ set(BETAFLIGHT_SOURCES
   flight/pid.c
   flight/pid_init.c
   flight/position.c
+  flight/rpm_filter.c
   #flight/feedforward.c
   flight/gps_rescue_multirotor.c
   flight/autopilot_multirotor.c

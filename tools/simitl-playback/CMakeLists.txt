@@ -10,7 +10,7 @@ add_executable(simitl-playback
   ${SOURCE_FILES}
 )
 
-target_include_directories(simitl-playback PUBLIC 
+target_include_directories(simitl-playback PUBLIC
   "../../src"
   "../../extern"
   "../../lib"
@@ -34,8 +34,17 @@ if (WIN32)
   target_link_libraries(simitl-playback PUBLIC user32 kernel32)
 endif (WIN32)
 
-target_link_libraries(simitl-playback PUBLIC 
-  fmt-header-only 
+target_link_libraries(simitl-playback PUBLIC
+  fmt-header-only
   SimITL
   sitl
+)
+
+add_executable(simitl-controller-bridge controller_bridge.cpp)
+target_compile_features(simitl-controller-bridge PRIVATE cxx_std_17)
+target_include_directories(simitl-controller-bridge PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}")
+target_link_libraries(simitl-controller-bridge PRIVATE fmt-header-only SimITL sitl)
+set_target_properties(simitl-controller-bridge PROPERTIES
+    BUILD_RPATH "$ORIGIN"
+    INSTALL_RPATH "$ORIGIN"
 )
