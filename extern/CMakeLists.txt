@@ -195,6 +195,7 @@ file(GLOB BETAFLIGHT_PG_SOURCES
 
 file(GLOB BETAFLIGHT_EXTENSIONS_SOURCES 
   "${CMAKE_CURRENT_SOURCE_DIR}/betaflightext/src/main/target/simITL/*.c"
+  "${CMAKE_CURRENT_SOURCE_DIR}/betaflightext/src/main/target/simITL/*.cpp"
   #"${CMAKE_CURRENT_SOURCE_DIR}/betaflightext/src/main/drivers/*.c"
   "${CMAKE_CURRENT_SOURCE_DIR}/betaflightext/src/main/cli/*.c"
   "${CMAKE_CURRENT_SOURCE_DIR}/betaflightext/src/main/common/*.c"
@@ -239,6 +240,9 @@ target_compile_definitions(sitl PUBLIC "FLASH_SIZE=2048")
 #target_include_directories(sitl PUBLIC extern)
 target_include_directories(sitl PUBLIC betaflightext/src/main)
 target_include_directories(sitl PUBLIC betaflightext/src/main/target/simITL)
+# symforce-generated quad MPC used by the simITL target's flight-mode hook
+target_include_directories(sitl PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}/../../multirotor/symforce_mpc")
+target_include_directories(sitl PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}/../../multirotor/symforce_mpc/eigen_shim")
 target_include_directories(sitl PUBLIC betaflight/lib/main/dyad)
 target_include_directories(sitl PUBLIC betaflight/src/main)
 target_include_directories(sitl PUBLIC betaflight/src/platform/SIMULATOR/include)

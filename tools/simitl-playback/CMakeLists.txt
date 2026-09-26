@@ -42,7 +42,10 @@ target_link_libraries(simitl-playback PUBLIC
 
 add_executable(simitl-controller-bridge controller_bridge.cpp)
 target_compile_features(simitl-controller-bridge PRIVATE cxx_std_17)
-target_include_directories(simitl-controller-bridge PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}")
+target_include_directories(simitl-controller-bridge PRIVATE
+  "${CMAKE_CURRENT_SOURCE_DIR}"
+  "${CMAKE_CURRENT_SOURCE_DIR}/../../../multirotor/symforce_mpc"
+  "${CMAKE_CURRENT_SOURCE_DIR}/../../../multirotor/symforce_mpc/eigen_shim")
 target_link_libraries(simitl-controller-bridge PRIVATE fmt-header-only SimITL sitl)
 set_target_properties(simitl-controller-bridge PROPERTIES
     BUILD_RPATH "$ORIGIN"

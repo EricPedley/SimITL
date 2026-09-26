@@ -1,6 +1,7 @@
 #include <fmt/format.h>
 #include "bf.h"
 #include "sitl.h" // access to bf internals
+#include "sim_mpc.h"
 #include <array>
 
 namespace SimITL{
@@ -68,6 +69,13 @@ namespace SimITL{
       result.acGain = pidRuntime.acGain;
       result.acroTrainer = false;
       result.pidEnabled = pidRuntime.pidStabilisationEnabled;
+      result.mpcFwActive = simMpcActive() != 0;
+      result.mpcFwSolveUs = static_cast<float>(simMpcLastSolveUs());
+      for (int i = 0; i < 3; i++)
+        result.mpcFwBias[i] = static_cast<float>(simMpcBias(i));
+      result.mpcFwColl = static_cast<float>(simMpcColl());
+      for (int i = 0; i < 4; i++)
+        result.mpcFwUref[i] = static_cast<float>(simMpcUref(i));
       for (int i = 0; i < 3; i++) {
         result.attitudeDeg[i] = attitude.raw[i] / 10.0f;
       }
@@ -89,6 +97,14 @@ namespace SimITL{
       arm->auxChannelIndex = 0;
       arm->range.startStep = 32;
       arm->range.endStep = 48;
+      // BOXMPC ("MPC CONTROL") on AUX2 (rcData[5]) drives the generated-MPC
+      // rate controller in the simITL target (sim_mpc.cpp). Same switch-high
+      // range as arm.
+      auto* user1 = modeActivationConditionsMutable(1);
+      user1->modeId = BOXMPC;
+      user1->auxChannelIndex = 1;
+      user1->range.startStep = 32;
+      user1->range.endStep = 48;
       rcControlsInit();
       pidConfigMutable()->runaway_takeoff_prevention = 0;
       // Absolute control + iterm rotation inject earth-frame corrections into

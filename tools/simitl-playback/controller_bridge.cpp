@@ -28,6 +28,7 @@
 
 #include "config.h"
 #include "sim/sim.h"
+#include "quad_mpc.h"
 
 namespace {
 constexpr double tickSeconds = 0.000125;
@@ -104,6 +105,9 @@ class Bridge {
   bool initialized = false;
   bool external = true;
   bool pinVelocity = false;
+  bool useMpc = false;
+  double lastSolveUs = 0.;
+  quad_mpc::Mpc mpc;
   uint64_t elapsedTicks = 0;
   uint64_t bootTimeUs = 0;
   unsigned seed = 1;
@@ -139,6 +143,12 @@ class Bridge {
     const std::string mode = request.get("mode").asString("external");
     if (mode != "external" && mode != "bf") throw std::runtime_error("mode must be external or bf");
     external = mode == "external";
+    const std::string controller = request.get("controller").asString("");
+    if (!controller.empty() && controller != "mpc")
+      throw std::runtime_error("controller must be mpc");
+    useMpc = controller == "mpc";
+    if (useMpc && !external)
+      throw std::runtime_error("controller=mpc requires external mode");
     const double requestedSeed = request.has("seed") ? number(request.get("seed"), "seed") : 1;
     if (requestedSeed < 0 || requestedSeed > std::numeric_limits<unsigned>::max() ||
         std::floor(requestedSeed) != requestedSeed) throw std::runtime_error("Invalid seed");
@@ -164,6 +174,12 @@ class Bridge {
     if (!eepromSource.empty()) std::filesystem::copy_file(eepromSource, workdir / "bridge-eeprom.bin");
     std::filesystem::current_path(workdir);
     std::srand(seed);
+    if (useMpc && configPath.stem().string() != quad_mpc::kQuadKey)
+      throw std::runtime_error("generated MPC constants are for quad '" +
+                               std::string(quad_mpc::kQuadKey) + "', not '" +
+                               configPath.stem().string() + "'; regenerate with "
+                               "multirotor.optimal_control_symforce");
+    if (useMpc) mpc.init();
     StateInit init{};
     cfg.applyTo(init);
     const char eeprom[] = "bridge-eeprom.bin";
@@ -209,9 +225,36 @@ class Bridge {
     std::copy(std::begin(sim.mSimState.stateInput.rcData), std::end(sim.mSimState.stateInput.rcData), rc.begin());
     if (request.has("rc")) rc = channels<8>(request.get("rc"), -1, 1);
     std::array<float, 4> pwm{};
-    if (external) pwm = channels<4>(request.get("motor_pwm"), 0, 1);
-    else if (request.has("motor_pwm")) throw std::runtime_error("motor_pwm is only valid in external mode");
+    if (external && !useMpc) pwm = channels<4>(request.get("motor_pwm"), 0, 1);
+    else if (!external && request.has("motor_pwm")) throw std::runtime_error("motor_pwm is only valid in external mode");
+    if (request.has("prop_damage")) {
+      // per-motor thrust-loss disturbance, e.g. [0,0.3,0,0]
+      const auto dmg = request.get("prop_damage");
+      for (int i = 0; i < 4 && i < (int)dmg.elements.size(); i++)
+        sim.mSimState.stateInput.propDamage[i] =
+            static_cast<float>(number(dmg.elements[i], "damage"));
+    }
     std::copy(rc.begin(), rc.end(), sim.mSimState.stateInput.rcData);
+    if (useMpc) {
+      // Generated quad MPC drives the motors; the request's motor_pwm is
+      // ignored.  Feedback = BF's filtered gyro + true motor state.
+      const auto& s = sim.mSimState;
+      const auto bf = SimITL::BF::getControllerTelemetry();
+      double gyro[3], omega[4], filtered[4], ref[3];
+      for (int i = 0; i < 3; ++i) {
+        gyro[i] = bf.gyroDegS[i] / radToDeg;
+        ref[i] = bf.setpointDegS[i] / radToDeg;
+      }
+      for (int i = 0; i < 4; ++i) {
+        omega[i] = s.motorsState[i].rpm * quad_mpc::kRpmToRadS;
+        filtered[i] = s.motorsState[i].pwmLowPassFilter.get();
+      }
+      const auto t0 = std::chrono::steady_clock::now();
+      const std::array<double, 4> cmd = mpc.update(gyro, omega, filtered, ref);
+      lastSolveUs = std::chrono::duration<double, std::micro>(
+                        std::chrono::steady_clock::now() - t0).count();
+      std::copy(cmd.begin(), cmd.end(), pwm.begin());
+    }
     if (external) sim.setMotorOverride(pwm);
     const uint32_t substeps = (ticks + 7) / 8;
     for (uint32_t i = 0; i < substeps; i++) {
@@ -240,6 +283,8 @@ class Bridge {
     std::ostringstream out;
     out << std::setprecision(17);
     out << "{\"ok\":true,\"mode\":" << quote(external ? "external" : "bf")
+        << ",\"controller\":" << quote(useMpc ? "mpc" : "none")
+        << ",\"mpc_solve_us\":" << lastSolveUs
         << ",\"seed\":" << seed << ",\"workdir\":" << quote(workdir.string())
         << ",\"open_loop\":0,\"pin_velocity\":" << (pinVelocity ? "true" : "false")
         << ",\"time_s\":" << elapsedTicks * tickSeconds
@@ -266,6 +311,11 @@ class Bridge {
     out << ",\"bf_launch_control\":" << (bf.launchControl ? "true" : "false");
     out << ",\"bf_flight_modes\":" << bf.flightModeFlags;
     out << ",\"bf_pid_setpoint_deg_s\":"; arrayJson(out, bf.pidSetpointDegS);
+    out << ",\"mpc_fw_active\":" << (bf.mpcFwActive ? "true" : "false");
+    out << ",\"mpc_fw_solve_us\":" << bf.mpcFwSolveUs;
+    out << ",\"mpc_fw_bias\":"; arrayJson(out, bf.mpcFwBias);
+    out << ",\"mpc_fw_coll\":" << bf.mpcFwColl;
+    out << ",\"mpc_fw_uref\":"; arrayJson(out, bf.mpcFwUref);
     out << ",\"bf_maxvel_r\":" << bf.maxVelocityR
         << ",\"bf_iterm_rot\":" << (bf.itermRotation ? 1 : 0)
         << ",\"bf_ac_gain\":" << bf.acGain

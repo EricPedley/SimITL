@@ -81,6 +81,13 @@ namespace SimITL{
       bool calibrated = false;
       bool armed = false;
       bool dshotTelemetryActive = false;
+      // generated-MPC flight-mode hook (BOXMPC): active flag + solve time +
+      // disturbance-bias estimate
+      bool mpcFwActive = false;
+      float mpcFwSolveUs = 0.f;
+      std::array<float, 3> mpcFwBias{};
+      float mpcFwColl = 0.f;
+      std::array<float, 4> mpcFwUref{};
     };
 
     ControllerTelemetry getControllerTelemetry();

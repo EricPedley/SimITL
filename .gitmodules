@@ -1,7 +1,7 @@
 [submodule "extern/betaflight"]
 	path = extern/betaflight
 	url = git@github.com:EricPedley/betaflight.git
-	branch = simitl-dshot
+	branch = feat/mpc-flight-mode
 [submodule "extern/fmt"]
 	path = extern/fmt
 	url = https://github.com/fmtlib/fmt.git

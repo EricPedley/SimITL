@@ -46,6 +46,7 @@
 
 #include "drivers/timer.h"
 #include "timer_def.h"
+#include "sim_mpc.h"
 
 const timerHardware_t timerHardware[1]; // unused
 
@@ -218,6 +219,9 @@ static void pwmCompleteMotorUpdate(void)
     if (featureIsEnabled(FEATURE_3D)) {
         outScale = 500.0;
     }
+    // All motor values are final for this cycle: let the generated MPC take
+    // over motorsPwm[] when its flight mode (BOXMPC) is active.
+    simMpcUpdate();
 }
 
 void pwmWriteServo(uint8_t index, float value)
