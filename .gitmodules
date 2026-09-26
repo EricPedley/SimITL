@@ -1,6 +1,7 @@
 [submodule "extern/betaflight"]
 	path = extern/betaflight
-	url = git@github.com:AJ92/betaflight.git
+	url = git@github.com:EricPedley/betaflight.git
+	branch = simitl-dshot
 [submodule "extern/fmt"]
 	path = extern/fmt
 	url = https://github.com/fmtlib/fmt.git
