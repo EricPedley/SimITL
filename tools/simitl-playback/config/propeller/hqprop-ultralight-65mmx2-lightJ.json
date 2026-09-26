@@ -1,0 +1,22 @@
+{
+    "version": 2,
+    "name": "HQ Ultralight 65mm (half inertia, loud)",
+    "fileName": "hqprop-ultralight-65mmx2-lightJ",
+    "buildIn": false,
+    "description": "65mm 2-blade prop (25.4mm pitch, P/D 0.39). Thrust/torque factors from the wing_optimization factor-graph reduced-order model.",
+    "bladeCount": 2,
+    "propMaxRpm": 30000.0,
+    "propAudioPitch": 1.1,
+    "propAFactor": 7.42321001229242e-10,
+    "propTorqueFactor": 0.006530149169648785,
+    "propInertia": 1.02e-07,
+    "propThrustFactor": {
+        "x": 0.0,
+        "y": -0.01762462412225521,
+        "z": 0.6680889011063178
+    },
+    "propHarmonic1Amp": 0.1,
+    "propHarmonic2Amp": 0.3,
+    "mass": 0.00039,
+    "durability": 1.0
+}

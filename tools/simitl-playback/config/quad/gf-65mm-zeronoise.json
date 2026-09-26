@@ -1,0 +1,66 @@
+{
+    "version": 4,
+    "name": "Gemfan 65mm 1S Micro Freestyle \u2014 ALL-ZERO TEST",
+    "fileName": "gf-65mm-zeronoise",
+    "buildIn": false,
+    "description": "Diagnostic: every noise/propwash/ground-effect parameter zeroed. If this still shakes, the mechanism is real dynamics.",
+    "frameDragArea": {
+        "x": 0.0038,
+        "y": 0.003,
+        "z": 0.0038
+    },
+    "frameDragConstant": 1.2,
+    "mass": 0.0444,
+    "invInertia": {
+        "x": 20160.8,
+        "y": 9752.1,
+        "z": 15743.7
+    },
+    "gyroBaseNoiseAmp": 0.0,
+    "gyrobaseNoiseFreq": 0.0,
+    "frameHarmonic1Amp": 0.0,
+    "frameHarmonic1Freq": 0.0,
+    "frameHarmonic2Amp": 0.0,
+    "frameHarmonic2Freq": 0.0,
+    "minPropWashSpeed": 1.0,
+    "maxPropWashSpeed": 8.0,
+    "propWashAngleOfAttack": 0.15,
+    "propWashFactor": 0.0,
+    "maxGroundEffectDist": 0.0,
+    "motor1Pos": {
+        "x": 0.04957999999999999,
+        "y": 0.005,
+        "z": -0.03508
+    },
+    "motor2Pos": {
+        "x": 0.04957999999999999,
+        "y": 0.005,
+        "z": 0.03508
+    },
+    "motor3Pos": {
+        "x": -0.04957999999999999,
+        "y": 0.005,
+        "z": -0.03508
+    },
+    "motor4Pos": {
+        "x": -0.04957999999999999,
+        "y": 0.005,
+        "z": 0.03508
+    },
+    "motor1Dir": -1.0,
+    "motor2Dir": 1.0,
+    "motor3Dir": 1.0,
+    "motor4Dir": -1.0,
+    "motorVariance": {
+        "x": 1.0,
+        "y": 1.0,
+        "z": 1.0,
+        "w": 1.0
+    },
+    "motor": "RCInPower GTS-V3 1203 11500kV (quiet)",
+    "propeller": "Gemfan GF65MMS-2 (quiet)",
+    "battery": "LAVA II 1s 680mah",
+    "vtx": "25mW analog vtx",
+    "soundMaxRpm": 40000.0,
+    "model": "gf-65mm-micro"
+}

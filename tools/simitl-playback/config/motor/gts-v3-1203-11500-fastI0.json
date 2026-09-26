@@ -1,0 +1,19 @@
+{
+    "version": 3,
+    "name": "GTS-V3 1203 11500kV low-I0 (test)",
+    "fileName": "gts-v3-1203-11500-fastI0",
+    "buildIn": false,
+    "description": "11500kV motor. R=0.100 ohm, I0=0.845 A from the wing_optimization motor catalogue.",
+    "motorKV": 11500.0,
+    "motorR": 0.1,
+    "motorI0": 0.254,
+    "motorRth": 35.0,
+    "motorCth": 2.5,
+    "motorMaxT": 128.0,
+    "motorImbalance": {
+        "x": 8.0,
+        "y": 4.0,
+        "z": 3.0
+    },
+    "mass": 0.0045
+}

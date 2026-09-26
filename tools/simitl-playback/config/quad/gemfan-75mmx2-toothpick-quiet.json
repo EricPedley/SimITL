@@ -1,0 +1,22 @@
+{
+    "version": 2,
+    "name": "Gemfan 75mm 2-blade Toothpick (quiet)",
+    "fileName": "gemfan-75mmx2-toothpick-quiet",
+    "buildIn": false,
+    "description": "75mm 2-blade prop (22.9mm pitch, P/D 0.31). Thrust/torque factors from the wing_optimization factor-graph reduced-order model.",
+    "bladeCount": 2,
+    "propMaxRpm": 30000.0,
+    "propAudioPitch": 1.1,
+    "propAFactor": 9.843012672840675e-10,
+    "propTorqueFactor": 0.006721496798667538,
+    "propInertia": 3.32775e-07,
+    "propThrustFactor": {
+        "x": 0.0,
+        "y": -0.02550437561458617,
+        "z": 0.8858711405556607
+    },
+    "propHarmonic1Amp": 0.0,
+    "propHarmonic2Amp": 0.0,
+    "mass": 0.00048,
+    "durability": 1.0
+}

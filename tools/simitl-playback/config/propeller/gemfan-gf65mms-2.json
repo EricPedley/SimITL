@@ -1,0 +1,22 @@
+{
+    "version": 2,
+    "name": "Gemfan GF65MMS-2",
+    "fileName": "gemfan-gf65mms-2",
+    "buildIn": false,
+    "description": "65mm 2-blade prop (33.0mm pitch, P/D 0.51). Thrust/torque factors from the wing_optimization factor-graph reduced-order model.",
+    "bladeCount": 2,
+    "propMaxRpm": 30000.0,
+    "propAudioPitch": 1.1,
+    "propAFactor": 8.723631890611889e-10,
+    "propTorqueFactor": 0.006973932551437452,
+    "propInertia": 2.2501814223599995e-07,
+    "propThrustFactor": {
+        "x": 0.0,
+        "y": -0.01875114131996545,
+        "z": 0.78512687015507
+    },
+    "propHarmonic1Amp": 0.02,
+    "propHarmonic2Amp": 0.04,
+    "mass": 0.00043,
+    "durability": 1.0
+}
