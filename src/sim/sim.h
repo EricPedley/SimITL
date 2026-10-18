@@ -29,6 +29,7 @@
 #include "sim/bf.h"
 #include "sim/state.h"
 #include "sim/physics.h"
+#include "sim/tailsitter.h"
 
 using hr_clock = std::chrono::high_resolution_clock;
 
@@ -80,6 +81,7 @@ namespace SimITL{
 
     SimState mSimState{};
     Physics mPhysics{};
+    TailsitterPhysics mTailsitter{};
 
   private:
     uint16_t rc_data[16] {};

@@ -38,7 +38,11 @@ add_subdirectory(tools/simitl-tester)
 # enables playback of ghosts from pr0p
 add_subdirectory(tools/simitl-playback)
 
-install(TARGETS simitl-playback simitl-tester SimITL sitl simitlsharedmem
+# SimITL-wing
+# headless runner / test harness for the tailsitter flying wing
+add_subdirectory(tools/simitl-wing)
+
+install(TARGETS simitl-playback simitl-tester simitl-wing SimITL sitl simitlsharedmem
         RUNTIME DESTINATION bin           COMPONENT Runtime
         LIBRARY DESTINATION bin           COMPONENT Runtime
         ARCHIVE DESTINATION lib/simitl    COMPONENT Development)

@@ -14,6 +14,8 @@ namespace SimITL{
       #include "fc/tasks.h"
 
       #include "flight/imu.h"
+      #include "flight/pid.h"
+      #include "fc/rc_controls.h"
 
       #include "scheduler/scheduler.h"
       #include "sensors/sensors.h"
@@ -24,6 +26,7 @@ namespace SimITL{
       #include "drivers/sound_beeper.h"
 
       #include "sensors/current.h"
+      #include "sensors/gyro.h"
 
       //added, not sure if needed
       #include "rx/rx.h"
@@ -84,6 +87,7 @@ namespace SimITL{
       extern int64_t sleep_timer;
 
       extern int16_t motorsPwm[MAX_SUPPORTED_MOTORS];
+      extern int16_t servosPwm[MAX_SUPPORTED_SERVOS];
 
     } // end extern "C"
   }

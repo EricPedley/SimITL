@@ -133,6 +133,11 @@ set(BETAFLIGHT_SOURCES
   #flight/feedforward.c
   flight/gps_rescue_multirotor.c
   flight/autopilot_multirotor.c
+  flight/alt_hold_wing.c
+  flight/autopilot_wing.c
+  flight/gps_rescue_wing.c
+  flight/pos_hold_wing.c
+  common/pwl.c
 
   #io/serial.c
   io/beeper.c
@@ -230,6 +235,12 @@ target_compile_features(sitl PUBLIC cxx_std_17)
 target_compile_definitions(sitl PUBLIC "SITL")
 target_compile_definitions(sitl PUBLIC "__TARGET__=\"SimITL\"")
 target_compile_definitions(sitl PUBLIC "__REVISION__=\"1\"")
+
+# wing/airplane support: USE_WING must be visible to target/common_pre.h,
+# which runs before target.h, so it has to come in as a compile definition
+# (same ordering as a real config.h target). USE_SERVOS and USE_ADVANCED_TPA
+# are auto-defined from it there.
+target_compile_definitions(sitl PUBLIC "USE_WING")
 
 target_compile_definitions(sitl PUBLIC SIMULATOR_BUILD=1)
 target_compile_definitions(sitl PUBLIC "HSE_VALUE=8000000")

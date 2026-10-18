@@ -152,11 +152,33 @@ namespace SimITL{
 
       simState.armed = (BF::armingFlags & BF::ARMED) == BF::ARMED;
       simState.armingDisabledFlags = (int)BF::getArmingDisableFlags();
+      simState.stateOutput.armed = simState.armed ? 1U : 0U;
+      simState.stateOutput.armingDisableFlags = simState.armingDisabledFlags;
       simState.microsPassed = BF::micros_passed;
       simState.motorsState[0].pwm = BF::motorsPwm[0] / 1000.0f;
       simState.motorsState[1].pwm = BF::motorsPwm[1] / 1000.0f;
       simState.motorsState[2].pwm = BF::motorsPwm[2] / 1000.0f;
       simState.motorsState[3].pwm = BF::motorsPwm[3] / 1000.0f;
+
+      for (int i = 0; i < 8; i++) {
+        simState.servosPwm[i] = static_cast<float>(BF::servosPwm[i]);
+        simState.stateOutput.servoOutput[i] = simState.servosPwm[i];
+      }
+
+      // FC-frame gyro rates (deg/s) after alignment + filtering
+      for (int i = 0; i < 3; i++) {
+        simState.stateOutput.fcGyro[i] = BF::gyro.gyroADCf[i];
+        simState.stateOutput.fcPidSum[i] = BF::pidData[i].Sum;
+      }
+      for (int i = 0; i < 4; i++) {
+        simState.stateOutput.fcRcCommand[i] = BF::rcCommand[i];
+      }
+      simState.stateOutput.fcAttitude[0] = BF::attitude.values.roll / 10.0f;
+      simState.stateOutput.fcAttitude[1] = BF::attitude.values.pitch / 10.0f;
+      simState.stateOutput.fcAttitude[2] = BF::attitude.values.yaw / 10.0f;
+      for (int i = 0; i < 8; i++) {
+        simState.stateOutput.fcRcData[i] = BF::rcData[i];
+      }
 
       simState.beep = BF::getBeeper() ? 1U : 0U;
       simState.stateOutput.beep = simState.beep;

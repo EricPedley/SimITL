@@ -157,7 +157,7 @@ static pwmOutputPort_t servos[MAX_SUPPORTED_SERVOS];
 
 // real value to send
 int16_t motorsPwm[MAX_SUPPORTED_MOTORS];
-static int16_t servosPwm[MAX_SUPPORTED_SERVOS];
+int16_t servosPwm[MAX_SUPPORTED_SERVOS];
 static int16_t idlePulse;
 
 void servoDevInit(const servoDevConfig_t *servoConfig)

@@ -18,13 +18,14 @@ namespace SimITL{
   Sim::Sim()
   {
     mPhysics.setSimState(&mSimState);
+    mTailsitter.setSimState(&mSimState);
   }
 
   Sim::~Sim() {
-    running = false;          // signal the wsThread to exit                             
-    //if(wsThread.joinable()) {                                                            
-    //  wsThread.join();      // wait for it                                             
-    //} 
+    running = false;          // signal the wsThread to exit
+    if(wsThread.joinable()) {
+      wsThread.join();      // wait for it (it sleeps 10ms per iteration)
+    }
   }
 
   std::chrono::system_clock::time_point start;
@@ -47,8 +48,12 @@ namespace SimITL{
       wsThread = std::thread(wsUpdateThread, this);
     }
 
-    mPhysics.initState(stateInit);
-    
+    if (stateInit.vehicleType == VehicleTailsitter) {
+      mTailsitter.initState(stateInit);
+    } else {
+      mPhysics.initState(stateInit);
+    }
+
     //reset rc data to valid data...
     BF::resetRcData();
 
@@ -60,7 +65,11 @@ namespace SimITL{
   }
 
   void Sim::reinitPhysics(const StateInit& stateInit){
-    mPhysics.initState(stateInit);
+    if (stateInit.vehicleType == VehicleTailsitter) {
+      mTailsitter.initState(stateInit);
+    } else {
+      mPhysics.initState(stateInit);
+    }
   }
 
   void Sim::update(const StateInput& stateInput){
@@ -84,8 +93,12 @@ namespace SimITL{
         BF::setRcData(stateInput.rcData);
     }
 
-    mPhysics.updateState(stateInput);
-    
+    if (mSimState.stateInit.vehicleType == VehicleTailsitter) {
+      mTailsitter.updateState(stateInput);
+    } else {
+      mPhysics.updateState(stateInput);
+    }
+
     //rc data is updated independently
     simStep();
   }
@@ -95,7 +108,11 @@ namespace SimITL{
   }
 
   void Sim::command(const CommandType cmd){
-    mPhysics.updateCommands(cmd);
+    if (mSimState.stateInit.vehicleType == VehicleTailsitter) {
+      mTailsitter.updateCommands(cmd);
+    } else {
+      mPhysics.updateCommands(cmd);
+    }
   };
 
   void Sim::simStep() {
@@ -103,8 +120,15 @@ namespace SimITL{
       total_delta -= DELTA;
       const double dt = static_cast<double>(DELTA) / 1e6f;
 
-      mPhysics.updateGyro(dt);
-  
+      const bool isTailsitter =
+          mSimState.stateInit.vehicleType == VehicleTailsitter;
+
+      if (isTailsitter) {
+        mTailsitter.updateGyro(dt);
+      } else {
+        mPhysics.updateGyro(dt);
+      }
+
       if (mSimState.stateInput.openLoop) {
           // Open-loop: drive motors directly from input, bypassing Betaflight PID
           for (int i = 0; i < 4; i++) {
@@ -115,7 +139,11 @@ namespace SimITL{
           BF::update(DELTA, mSimState);
       }
 
-      mPhysics.updatePhysics(dt);
+      if (isTailsitter) {
+        mTailsitter.updatePhysics(dt);
+      } else {
+        mPhysics.updatePhysics(dt);
+      }
     }
   }
 

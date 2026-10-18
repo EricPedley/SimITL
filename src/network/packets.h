@@ -16,6 +16,11 @@ enum MotorStatus : int32_t {
   MotorDamaged = 2U,
 };
 
+enum VehicleType : int32_t {
+  VehicleQuad = 0,
+  VehicleTailsitter = 1,
+};
+
 struct Vec3F{
   float x = 0.0f;
   float y = 0.0f;
@@ -36,8 +41,101 @@ struct GpsData{
   int32_t alt = 0;
 };
 
+/**
+ * Parameters for the tailsitter flying-wing physics model.
+ *
+ * Geometry uses the airfoil_model.py convention: chordwise positions are
+ * metres aft of the root leading edge (aft positive), spanwise positions are
+ * metres from the centreline.  The flight dynamics internal body frame is the
+ * aerospace frame (x forward/nose, y right/starboard, z down); the frame
+ * handedness conversion to SimITL's world happens inside TailsitterPhysics.
+ */
+struct TailsitterInit {
+  // mass and full inertia tensor about the CG, aerospace body frame
+  // (x fwd, y right, z down). inertia = {Ixx, Iyy, Izz, Ixy, Ixz, Iyz}
+  float mass = 0.0f;
+  float inertia[6] = {};
+  // CG location, m aft of the root leading edge, on the centreline
+  float cgX = 0.0f;
+
+  // wing planform (see airfoil_model.py)
+  float span = 0.0f;
+  float rootChord = 0.0f;
+  float tipChord = 0.0f;
+  float rootHalfWidth = 0.0f;    // semi-width of the constant-chord centre strip
+  float leSweepDeg = 0.0f;       // leading edge sweep of the tapered panel
+  float thicknessRatioRoot = 0.0f;
+  float thicknessRatioTip = 0.0f;
+  // Birnbaum-Glauert camber coefficients, root and tip
+  float camberA1Root = 0.0f;
+  float camberA2Root = 0.0f;
+  float camberA1Tip = 0.0f;
+  float camberA2Tip = 0.0f;
+
+  // elevons (per side, symmetric)
+  float xHinge = 0.0f;           // hinge station as fraction of local chord
+  float elevonInboardY = 0.0f;   // m from centreline
+  float elevonOutboardY = 0.0f;  // m from centreline
+  float elevonMaxDeg = 0.0f;     // geometric travel limit (linkage delta_max)
+  // hinge axes/points in aerospace body frame, for the renderer
+  // (physics only needs the scalar deflection per side)
+  Vec3F hingePointL {};
+  Vec3F hingeAxisL {};
+  Vec3F hingePointR {};
+  Vec3F hingeAxisR {};
+
+  // propulsion: two tractor props ahead of the leading edge
+  float motorY = 0.0f;           // spanwise station, m
+  float motorXAft = 0.0f;        // prop disk chordwise station (aft of root LE,
+                                 // negative = ahead of the wing)
+  float motorZ = 0.0f;           // vertical offset of prop axis vs chord plane
+  int32_t motorSpinDir[2] = {1, -1}; // spin direction about +x_a, {right, left}
+  float thrustScale = 1.0f;      // multiplies prop thrust (unmeasured static
+                                 // thrust correction, see FLIGHT_SIM_PLAN)
+
+  // section / aero constants (airfoil_model.py values)
+  float clMaxBase = 0.80f;
+  float clMaxCamberGain = 8.0f;
+  float clMaxTcGain = 1.5f;
+  float clMaxTcRef = 0.085f;
+  float clMaxReGain = 0.12f;
+  float clMaxReRef = 40000.0f;
+  float clMaxCeiling = 1.35f;
+  float flapEffectiveness = 0.65f;
+  float flapStallDeg = 15.0f;
+  float flapSaturationDeg = 30.0f;
+  float slipstreamDevelopment = 0.5f;
+  float slipstreamWidthFactor = 1.0f;
+  float propDiameter = 0.051f;
+  float cd0 = 0.02f;             // section profile drag in the attached range
+  float cdInduced = 0.0f;        // extra Cl^2 term; 0 -> 1/(pi*AR*e), e=0.85
+  float cdmaxViterna = 0.0f;     // flat-plate drag ceiling; 0 -> 1.11+0.018*AR
+  int32_t numStrips = 33;        // spanwise strips, odd recommended
+
+  // servo model: pwm microseconds -> elevon deflection
+  // deflection_deg = (pwm - centerUs) * servoSign * degPerUs, lagged and
+  // slew-rate limited. servoIndex = BF smix target index per side.
+  int32_t servoIndex[2] = {2, 3};   // {left, right} BF servo table indices
+  float servoCenterUs = 1500.0f;
+  float servoDegPerUs = 0.1f;       // deg of elevon travel per microsecond
+  float servoSign[2] = {1.0f, 1.0f};// elevon deflection sign vs pwm, {left,right}
+  float servoTauSec = 0.02f;        // first-order lag time constant
+  float servoRateDps = 600.0f;      // slew rate limit, deg/s
+  float servoMinUs = 500.0f;        // output clamps
+  float servoMaxUs = 2500.0f;
+
+  // flight controller board alignment (degrees about aircraft z axis, matches
+  // align_board_yaw in the Betaflight config)
+  float fcYawDeg = 180.0f;
+};
+
 // initial quad settings.
 struct StateInit{
+  int32_t vehicleType = 0;  // VehicleType
+
+  // tailsitter / flying-wing parameters, used when
+  // vehicleType == VehicleTailsitter
+  TailsitterInit tailsitter {};
   float motorKV[4]    = {}; // KV
   float motorR[4]     = {}; // resistance
   float motorI0[4]    = {}; // idle current
@@ -161,6 +259,32 @@ struct StateOutput{
 
   // battery voltage in V
   float batteryVoltage;
+
+  // servo outputs in microseconds (BF servo table indices 0..7)
+  float servoOutput[8] {};
+
+  // actual elevon deflection in degrees after servo dynamics, {left, right}
+  float elevonDeg[2] {};
+
+  // betaflight armed state and disable-flag bitmask (armingDisableFlags_e)
+  uint8_t armed = 0U;
+  int32_t armingDisableFlags = 0;
+
+  // gyro as seen by the flight controller, deg/s, in FC axes
+  // (after board alignment) - diagnostic for axis/sign checks
+  float fcGyro[3] {};
+
+  // pidData[FD_*].Sum - roll, pitch, yaw controller outputs
+  float fcPidSum[3] {};
+
+  // BF rcCommand roll/pitch/throttle/yaw in native units (deg/s for rates)
+  float fcRcCommand[4] {};
+
+  // BF estimated attitude roll/pitch/yaw in degrees (attitude.values/10)
+  float fcAttitude[3] {};
+
+  // BF rcData channels 0..7 in us after channel mapping
+  float fcRcData[8] {};
 
   // beeper on (1) / off (0)
   uint8_t beep = 0U;

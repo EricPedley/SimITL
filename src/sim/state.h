@@ -118,6 +118,11 @@ namespace SimITL{
     std::array<MotorState, 4> motorsState {};
     BatteryState batteryState {};
 
+    // raw servo outputs from betaflight, microseconds (indices 0..7)
+    float servosPwm[8] {};
+    // elevon deflection after servo dynamics, degrees, {left, right}
+    float elevonDeg[2] {};
+
     vec3 acceleration{0, 0, 0};
 
     vec3 gyroNoise{0, 0, 0};
