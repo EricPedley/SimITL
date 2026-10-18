@@ -1,5 +1,26 @@
 #dependencies
 
+# Local patches to the vendored Betaflight (a submodule we don't own), applied
+# at configure time.  A patch that already applies in reverse is in place.
+file(GLOB BETAFLIGHT_PATCHES "${CMAKE_CURRENT_SOURCE_DIR}/../patches/betaflight/*.patch")
+list(SORT BETAFLIGHT_PATCHES)
+foreach(patch ${BETAFLIGHT_PATCHES})
+  execute_process(
+    COMMAND git apply --reverse --check ${patch}
+    WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}/betaflight"
+    RESULT_VARIABLE already_applied OUTPUT_QUIET ERROR_QUIET)
+  if(NOT already_applied EQUAL 0)
+    execute_process(
+      COMMAND git apply ${patch}
+      WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}/betaflight"
+      RESULT_VARIABLE apply_failed)
+    if(apply_failed)
+      message(FATAL_ERROR "failed to apply ${patch}")
+    endif()
+    message(STATUS "applied ${patch}")
+  endif()
+endforeach()
+
 add_subdirectory(fmt EXCLUDE_FROM_ALL)
 
 set(LWS_WITH_MINIMAL_EXAMPLES OFF CACHE BOOL "disable minimal examples" FORCE)

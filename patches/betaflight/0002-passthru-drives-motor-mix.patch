@@ -1,0 +1,40 @@
+diff --git a/src/main/flight/mixer.c b/src/main/flight/mixer.c
+index a2d5bc8b9..5e6fd5cdd 100644
+--- a/src/main/flight/mixer.c
++++ b/src/main/flight/mixer.c
+@@ -697,10 +697,24 @@ FAST_CODE_NOINLINE void mixTable(timeUs_t currentTimeUs)
+ #endif
+ 
+     // Calculate and Limit the PID sum
++    // Fixed-wing PASSTHRU drives the servos straight from the sticks
++    // (servoMixer) and zeroes the PIDs (pidController), so the motor mixer got
++    // nothing and differential-thrust yaw was dead.  Give it the same stick
++    // values, in PID units (the servo mixer treats rcCommand as
++    // pidSum * PID_SERVO_MIXER_SCALING); the pidsum limits below still apply.
++    float axisPidSum[XYZ_AXIS_COUNT] = { pidData[FD_ROLL].Sum, pidData[FD_PITCH].Sum, pidData[FD_YAW].Sum };
++#ifdef USE_WING
++    if (isFixedWing() && FLIGHT_MODE(PASSTHRU_MODE)) {
++        for (int axis = FD_ROLL; axis <= FD_YAW; axis++) {
++            axisPidSum[axis] = rcCommand[axis] / PID_SERVO_MIXER_SCALING;
++        }
++    }
++#endif
++
+     const float scaledAxisPidRoll =
+-        constrainf(pidData[FD_ROLL].Sum, -currentPidProfile->pidSumLimit, currentPidProfile->pidSumLimit) / PID_MIXER_SCALING;
++        constrainf(axisPidSum[FD_ROLL], -currentPidProfile->pidSumLimit, currentPidProfile->pidSumLimit) / PID_MIXER_SCALING;
+     const float scaledAxisPidPitch =
+-        constrainf(pidData[FD_PITCH].Sum, -currentPidProfile->pidSumLimit, currentPidProfile->pidSumLimit) / PID_MIXER_SCALING;
++        constrainf(axisPidSum[FD_PITCH], -currentPidProfile->pidSumLimit, currentPidProfile->pidSumLimit) / PID_MIXER_SCALING;
+ 
+     uint16_t yawPidSumLimit = currentPidProfile->pidSumLimitYaw;
+ 
+@@ -712,7 +726,7 @@ FAST_CODE_NOINLINE void mixTable(timeUs_t currentTimeUs)
+ #endif // USE_YAW_SPIN_RECOVERY
+ 
+     float scaledAxisPidYaw =
+-        constrainf(pidData[FD_YAW].Sum, -yawPidSumLimit, yawPidSumLimit) / PID_MIXER_SCALING;
++        constrainf(axisPidSum[FD_YAW], -yawPidSumLimit, yawPidSumLimit) / PID_MIXER_SCALING;
+ 
+     if (!mixerConfig()->yaw_motors_reversed) {
+         scaledAxisPidYaw = -scaledAxisPidYaw;

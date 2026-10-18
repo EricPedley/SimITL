@@ -67,6 +67,7 @@ namespace SimITL{
                          float& cl, float& cd, float& cm) const;
       void updateServos(double dt);
       float calculateMotors(double dt);
+      float motorPwm(int side) const;  // BF command for {right, left}
       void updateBat(double dt);
       void updateRotation(double dt, StateInput& state);
       void repair();

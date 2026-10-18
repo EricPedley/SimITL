@@ -125,21 +125,58 @@ namespace SimITL{
     memcpy((void*)&(mSimState->stateInput), (const void*)(&state), sizeof(StateInput));
   }
 
+  float TailsitterPhysics::motorPwm(int side) const {
+    const int idx = clamp(mSimState->stateInit.tailsitter.motorIndex[side], 0, 3);
+    return mSimState->motorsState[idx].pwm;
+  }
+
+  // Body-frame vector (sim axes: x=port, y=dorsal, z=nose) -> what the
+  // physical sensor on the flight controller reads, expressed so that bf.cpp's
+  // sensor remap (written for the quad's left-handed Unity frame) passes it
+  // through unchanged.
+  //
+  // Betaflight's body frame is x forward, y left, z up (roll right, pitch
+  // nose-down, yaw nose-left positive), i.e. (nose, port, dorsal).  The board
+  // is mounted rotated fcYawDeg about z; Betaflight's align_board_yaw undoes
+  // that, so the raw reading is the body vector rotated by -fcYawDeg.
+  // bf.cpp then reads gyro as (-g[2], g[0], -g[1]) and acc as
+  // (-a[2], a[0], a[1]), which is inverted here.
+  static vec3 bodyToBoard(const vec3& sim, float fcYawDeg){
+    const float c = cosf(fcYawDeg * float(M_PI) / 180.0f);
+    const float s = sinf(fcYawDeg * float(M_PI) / 180.0f);
+    const float x = sim[2], y = sim[0], z = sim[1];   // Betaflight body axes
+    return vec3{c * x + s * y, -s * x + c * y, z};
+  }
+
   void TailsitterPhysics::updateGyro(double dt){
-    // same convention as Physics::updateGyro: body-frame gyro and the
-    // acceleration + gravity trick in body coordinates. With the tailsitter
-    // axis assignment the bf.cpp sensor remap plus align_board_yaw lands the
-    // data on the right Betaflight axes.
     mat3 basis;
     copy(basis, mSimState->stateInput.rotation);
-    mSimState->rotation = mat3_to_quat(basis);
+    const float yawDeg = mSimState->stateInit.tailsitter.fcYawDeg;
+
+    // Attitude for Betaflight: body (x fwd, y left, z up) -> earth (z up).
+    // Body axes are (nose, port, dorsal) = sim (z, x, y); take earth axes as
+    // world (z, x, y).  Both are the same cyclic permutation of the sim
+    // frames, so Betaflight's quaternion is the sim one with its vector part
+    // permuted (x, y, z) -> (z, x, y).  bf.cpp hands Betaflight
+    // (w, -r[2], -r[0], r[1]) (written for the quad's frame), so store the
+    // pre-inverted form.  Board alignment does not apply: this is body
+    // attitude, not a sensor reading.  Betaflight's simulator build also
+    // negates two rMat entries for the quad's frame; the patched imu.c skips
+    // that for fixed-wing mixers so this quaternion arrives as a proper
+    // rotation (sim/test_control_signs.py checks the attitude it reports).
+    const quat qs = mat3_to_quat(basis);            // (x, y, z, w), body->world
+    mSimState->rotation = quat{-qs[0], qs[1], -qs[2], qs[3]};
 
     vec3 angularVelocity;
     copy(angularVelocity, mSimState->stateInput.angularVelocity);
-    mSimState->gyro = xform_inv(basis, angularVelocity);
+    const vec3 gb = bodyToBoard(xform_inv(basis, angularVelocity), yawDeg);
+    mSimState->gyro = vec3{gb[1], -gb[2], -gb[0]};
 
-    auto gravity_acceleration = vec3{0, -9.81f, 0};
-    mSimState->acc = xform_inv(basis, mSimState->acceleration + gravity_acceleration);
+    // accelerometers read specific force, a - g: +1 g up when at rest
+    const vec3 gravity{0.0f, -TS_G, 0.0f};
+    const vec3 ab = bodyToBoard(
+        xform_inv(basis, mSimState->acceleration - gravity), yawDeg);
+    mSimState->acc = vec3{ab[1], ab[2], -ab[0]};
   }
 
   // --- propulsion ------------------------------------------------------------
@@ -375,7 +412,10 @@ namespace SimITL{
     float resTorqueX = 0.0f;
 
     for (int i = 0; i < 2; i++){
+      // per-side state lives in motorsState[side]; the command comes from
+      // whichever Betaflight motor output drives this side
       MotorState& m = mSimState->motorsState[i];
+      const float pwm = motorPwm(i);
 
       // axial inflow at the prop disk
       const vec3 vLoc = vA + cross(wA, motorArm[i]);
@@ -384,18 +424,18 @@ namespace SimITL{
       float vbat = std::max(1.0f, mSimState->batteryState.batVoltageSag);
 
       // ESC transport delay + PWM lowpass, as the closed-loop quad path
-      m.pwmHistory.push_back(m.pwm);
+      m.pwmHistory.push_back(pwm);
       constexpr float escDelay = 0.002f;
       size_t delaySamples = static_cast<size_t>(escDelay / std::max(dt, 0.000001));
       if (delaySamples < 1) delaySamples = 1;
-      float delayedPwm = m.pwm;
+      float delayedPwm = pwm;
       while (m.pwmHistory.size() > delaySamples){
         delayedPwm = m.pwmHistory.front();
         m.pwmHistory.pop_front();
       }
       float volts = 0.0f;
       if (mSimState->stateInput.openLoop == 1){
-        volts = m.pwmLowPassFilter.update(m.pwm, dt, 500.0f) * vbat;
+        volts = m.pwmLowPassFilter.update(pwm, dt, 500.0f) * vbat;
       } else {
         volts = m.pwmLowPassFilter.update(delayedPwm, dt, 100.0f) * vbat;
       }
@@ -465,7 +505,7 @@ namespace SimITL{
     float batteryCurrent = 0.0f;
     for (int i = 0; i < 2; i++){
       batteryCurrent += fabsf(mSimState->motorsState[i].current)
-                      * clamp(mSimState->motorsState[i].pwm, 0.0f, 1.0f);
+                      * clamp(motorPwm(i), 0.0f, 1.0f);
     }
     double currentmAs = batteryCurrent / 3.6;
     const double mAMin = std::min(0.2, 0.5 /
@@ -581,7 +621,7 @@ namespace SimITL{
 
     for (int i = 0; i < 2; i++){
       const MotorState& m = mSimState->motorsState[i];
-      mSimState->stateOutput.motorOutput[i] = m.pwm;
+      mSimState->stateOutput.motorOutput[i] = motorPwm(i);   // per side, like rpm
       mSimState->stateOutput.motorRpm[i] = m.rpm;
       mSimState->stateOutput.motorTorque[i] = m.mTorque;
       mSimState->stateOutput.propellerTorque[i] = m.pTorque;

@@ -128,16 +128,20 @@ static float gThrottle = 0.35f;
 static bool  gPulses = true;
 static bool  gProbe = false;
 static float gHoldUntil = -1.0f;   // freeze pose until t > this (clean start)
+static float gAux2 = 0.0f;         // --aux2: AUX2 (ch6), e.g. 1 = ANGLE mode
+static vec3  gKick{0.0f, 0.0f, 0.0f};   // --kick: world rate (rad/s) at release
+static bool  gArm = true;          // --noarm: never raise AUX1 (Betaflight
+                                   // refuses CLI/MSP config while armed)
 
 static void scheduleRc(float t, StateInput& in) {
   for (int i = 0; i < 4; i++) in.rcData[i] = 0.0f;
   in.rcData[4] = 0.0f;   // aux1
-  in.rcData[5] = 0.0f;
+  in.rcData[5] = gAux2;
   in.rcData[6] = 0.0f;
   in.rcData[7] = 0.0f;
   in.rcData[2] = -1.0f;  // throttle low
 
-  if (t >= 5.5f) in.rcData[4] = 1.0f;        // arm
+  if (t >= 5.5f && gArm) in.rcData[4] = 1.0f;   // arm
   if (t >= 6.5f) in.rcData[2] = gThrottle;   // some throttle
   if (gProbe) {
     // distinctive per-channel values to map the FC channel order
@@ -191,6 +195,8 @@ static int runIdle(const std::string& wingPath, const std::string& eeprom,
   while (running && t < duration) {
     scheduleRc(t, in);
     const bool holding = frozen || (gHoldUntil >= 0.0f && t < gHoldUntil);
+    const bool wasHolding = !frozen && gHoldUntil >= 0.0f && t - dt < gHoldUntil
+                            && !holding;
     if (holding) {
       // inject only after boot/cal/arm so gyro calibration sees zero rate
       const bool inj = frozen && (t > 6.5f);
@@ -204,6 +210,9 @@ static int runIdle(const std::string& wingPath, const std::string& eeprom,
 
     if (holding) {
       // keep pose; gyro injection stays
+    } else if (wasHolding) {
+      // first free step: start from the pose with the --kick disturbance
+      in.angularVelocity = {gKick[0], gKick[1], gKick[2]};
     } else {
       // feed back orientation + velocities, integrate position host-side
       const quat q{o.orientation.x, o.orientation.y,
@@ -224,7 +233,8 @@ static int runIdle(const std::string& wingPath, const std::string& eeprom,
                  "{:.1f},{:.1f},{:.1f},{:.1f},{:.1f},{:.1f},"
                  "{:.0f},{:.0f},{:.0f},{:.0f},{:.0f},{:.0f},{:.0f},"
                  "{:.0f},{:.0f},{:.0f},{:.0f},"
-                 "{:.0f},{:.0f},{:.0f},{:.0f}\n",
+                 "{:.0f},{:.0f},{:.0f},{:.0f},"
+                 "{:.3f},{:.1f}\n",
                  t,
                  in.rcData[0], in.rcData[1], in.rcData[2], in.rcData[3],
                  (int)o.armed, (uint32_t)o.armingDisableFlags,
@@ -243,7 +253,11 @@ static int runIdle(const std::string& wingPath, const std::string& eeprom,
                  o.fcRcData[0], o.fcRcData[1],
                  o.fcRcData[2], o.fcRcData[3],
                  o.fcRcData[4], o.fcRcData[5],
-                 o.fcRcData[6], o.fcRcData[7]);
+                 o.fcRcData[6], o.fcRcData[7],
+                 // height, and the nose's tilt from vertical (deg): sim body
+                 // z (nose) in world is column 2 of the row-stored rotation
+                 in.position.y,
+                 std::acos(std::clamp(in.rotation[1].z, -1.0f, 1.0f)) * 57.2958f);
     }
     t += dt;
   }
@@ -405,6 +419,12 @@ int main(int argc, char** argv) {
     else if (a == "-v") verbose = true;
     else if (a == "--frozen") frozen = true;
     else if (a == "--nopulses") gPulses = false;
+    else if (a == "--noarm") gArm = false;
+    else if (a == "--aux2") gAux2 = std::stof(val("aux2"));
+    else if (a == "--kick") {
+      std::string s = val("kick");
+      sscanf(s.c_str(), "%f,%f,%f", &gKick[0], &gKick[1], &gKick[2]);
+    }
     else if (a == "--probe") gProbe = true;
     else if (a == "--thr") gThrottle = std::stof(val("thr"));
     else if (a == "--hold") gHoldUntil = std::stof(val("hold"));

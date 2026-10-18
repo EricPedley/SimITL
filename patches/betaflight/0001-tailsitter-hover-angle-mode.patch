@@ -1,0 +1,167 @@
+diff --git a/src/main/cli/settings.c b/src/main/cli/settings.c
+index 2701d5129..1884bd076 100644
+--- a/src/main/cli/settings.c
++++ b/src/main/cli/settings.c
+@@ -1431,6 +1431,7 @@ const clivalue_t valueTable[] = {
+     { PARAM_NAME_SPA_YAW_MODE,       VAR_UINT8 | MASTER_VALUE | MODE_LOOKUP, .config.lookup = { TABLE_SPA_MODE }, PG_PID_PROFILE, offsetof(pidProfile_t, spa_mode[FD_YAW]) },
+     { PARAM_NAME_YAW_TYPE,           VAR_UINT8 | MASTER_VALUE | MODE_LOOKUP, .config.lookup = { TABLE_YAW_TYPE }, PG_PID_PROFILE, offsetof(pidProfile_t, yaw_type) },
+     { PARAM_NAME_ANGLE_PITCH_OFFSET, VAR_INT16 | PROFILE_VALUE, .config.minmaxUnsigned = { -ANGLE_PITCH_OFFSET_MAX, ANGLE_PITCH_OFFSET_MAX }, PG_PID_PROFILE, offsetof(pidProfile_t, angle_pitch_offset) },
++    { PARAM_NAME_ANGLE_TAILSITTER,   VAR_UINT8 | PROFILE_VALUE | MODE_LOOKUP, .config.lookup = { TABLE_OFF_ON }, PG_PID_PROFILE, offsetof(pidProfile_t, angle_tailsitter) },
+ #endif
+ 
+ // PG_TELEMETRY_CONFIG
+diff --git a/src/main/fc/parameter_names.h b/src/main/fc/parameter_names.h
+index f697b669b..42cac3690 100644
+--- a/src/main/fc/parameter_names.h
++++ b/src/main/fc/parameter_names.h
+@@ -185,6 +185,7 @@
+ #define PARAM_NAME_ANGLE_P_GAIN "angle_p_gain"
+ #define PARAM_NAME_ANGLE_EARTH_REF "angle_earth_ref"
+ #define PARAM_NAME_ANGLE_PITCH_OFFSET "angle_pitch_offset"
++#define PARAM_NAME_ANGLE_TAILSITTER "angle_tailsitter"
+ 
+ #define PARAM_NAME_HORIZON_LEVEL_STRENGTH "horizon_level_strength"
+ #define PARAM_NAME_HORIZON_LIMIT_DEGREES "horizon_limit_degrees"
+diff --git a/src/main/flight/imu.c b/src/main/flight/imu.c
+index ec797ac6b..e5ac021f9 100644
+--- a/src/main/flight/imu.c
++++ b/src/main/flight/imu.c
+@@ -159,8 +159,13 @@ STATIC_UNIT_TESTED void imuComputeRotationMatrix(void)
+     rMat.m[2][2] = 1.0f - 2.0f * qP.xx - 2.0f * qP.yy;
+ 
+ #if defined(SIMULATOR_BUILD) && !defined(USE_IMU_CALC) && !defined(SET_IMU_FROM_EULER)
+-    rMat.m[1][0] = -2.0f * (qP.xy - -qP.wz);
+-    rMat.m[2][0] = -2.0f * (qP.xz + -qP.wy);
++    // Frame fix for the multirotor simulator's attitude feed.  It makes rMat
++    // improper, so it must not apply to a simulator that feeds a proper
++    // body->earth quaternion (the SimITL tailsitter, a fixed-wing mixer).
++    if (!isFixedWing()) {
++        rMat.m[1][0] = -2.0f * (qP.xy - -qP.wz);
++        rMat.m[2][0] = -2.0f * (qP.xz + -qP.wy);
++    }
+ #endif
+ }
+ 
+diff --git a/src/main/flight/pid.c b/src/main/flight/pid.c
+index f9761dfca..8b281ee66 100644
+--- a/src/main/flight/pid.c
++++ b/src/main/flight/pid.c
+@@ -259,6 +259,7 @@ void resetPidProfile(pidProfile_t *pidProfile)
+         .tpa_speed_pitch_offset = 0,
+         .yaw_type = YAW_TYPE_RUDDER,
+         .angle_pitch_offset = 0,
++        .angle_tailsitter = 0,
+         .chirp_lag_freq_hz = 3,
+         .chirp_lead_freq_hz = 30,
+         .chirp_amplitude_roll = 230,
+@@ -548,6 +549,46 @@ STATIC_UNIT_TESTED FAST_CODE_NOINLINE float calcHorizonLevelStrength(void)
+ // Use the FAST_CODE_NOINLINE directive to avoid this code from being inlined into ITCM RAM to avoid overflow.
+ // The impact is possibly slightly slower performance on F7/H7 but they have more than enough
+ // processing power that it should be a non-issue.
++#ifdef USE_WING
++// Tailsitter hover (angle_tailsitter = ON, active in ANGLE mode).
++//
++// Angle mode levels a "hover frame": the body pitched 90 deg nose-up, so the
++// nose-up hover reads as level.  With body axes x = nose, y = left, z = top:
++//     x_h = -z  (the belly side: where the aircraft goes in a transition)
++//     y_h =  y
++//     z_h =  x  (the nose, pointing up in the hover)
++// so hover roll = -body yaw, hover pitch = body pitch, hover yaw = body roll.
++// Only the self-levelling outer loop runs in the hover frame; its rate
++// setpoints are mapped back to body axes, and the body rate PIDs, mixer and
++// servo mixing are untouched.  Pitch the hover frame forward 90 deg and it is
++// forward flight.
++//
++// Sticks keep their aircraft (3D-plane) meaning, as in an acro hover:
++//   pitch stick -> hover pitch angle (elevator)
++//   yaw stick   -> hover roll angle, i.e. the nose leans the way the rudder
++//                  points (differential thrust)
++//   roll stick  -> body roll rate, i.e. spin about the vertical (elevons
++//                  opposed), not levelled
++static bool tailsitterHoverActive(const pidProfile_t *pidProfile)
++{
++    return pidProfile->angle_tailsitter && FLIGHT_MODE(ANGLE_MODE);
++}
++
++// Attitude in the hover frame, decidegrees, same conventions as attitude.raw
++// (roll right positive, pitch nose-down positive).
++static int16_t tailsitterHoverAttitude(int axis)
++{
++    // rMat row 2 is earth-up in body axes; express it in hover axes
++    const float ux = -rMat.m[2][2];
++    const float uy =  rMat.m[2][1];
++    const float uz =  rMat.m[2][0];
++    if (axis == FD_ROLL) {
++        return lrintf(atan2_approx(uy, uz) * (1800.0f / M_PIf));
++    }
++    return lrintf(((0.5f * M_PIf) - acos_approx(-ux)) * (1800.0f / M_PIf));
++}
++#endif // USE_WING
++
+ STATIC_UNIT_TESTED FAST_CODE_NOINLINE float pidLevel(int axis, const pidProfile_t *pidProfile, const rollAndPitchTrims_t *angleTrim,
+                                                         float currentPidSetpoint, float horizonLevelStrength)
+ {
+@@ -592,7 +633,13 @@ STATIC_UNIT_TESTED FAST_CODE_NOINLINE float pidLevel(int axis, const pidProfile_
+ 
+     angleTarget = constrainf(angleTarget, -angleLimit, angleLimit);
+ 
+-    const float currentAngle = (attitude.raw[axis] - angleTrim->raw[axis]) / 10.0f; // stepped at 500hz with some 4ms flat spots
++    int16_t rawAngle = attitude.raw[axis];
++#ifdef USE_WING
++    if (tailsitterHoverActive(pidProfile)) {
++        rawAngle = tailsitterHoverAttitude(axis);
++    }
++#endif
++    const float currentAngle = (rawAngle - angleTrim->raw[axis]) / 10.0f; // stepped at 500hz with some 4ms flat spots
+     const float errorAngle = angleTarget - currentAngle;
+     float angleRate = errorAngle * pidRuntime.angleGain + angleFeedforward;
+ 
+@@ -1240,6 +1287,23 @@ void FAST_CODE pidController(const pidProfile_t *pidProfile, timeUs_t currentTim
+ 
+ #endif // USE_CHIRP
+ 
++#if defined(USE_WING) && defined(USE_ACC)
++    // tailsitter hover: level in the hover frame, then map to body axes
++    float tailsitterSetpoint[XYZ_AXIS_COUNT] = { 0.0f, 0.0f, 0.0f };
++    const bool tailsitterHover = levelMode == LEVEL_MODE_RP && tailsitterHoverActive(pidProfile);
++    if (tailsitterHover) {
++        pidRuntime.angleYawSetpoint = 0.0f;   // no earth-ref yaw coupling
++        // yaw stick as a hover-roll command: hover roll rate = -body yaw rate,
++        // rescaled from yaw to roll stick range for pidLevel's angle target
++        const float yawStickAsHoverRoll = -getSetpointRate(FD_YAW) * getMaxRcRate(FD_ROLL) / getMaxRcRate(FD_YAW);
++        const float hoverRoll = pidLevel(FD_ROLL, pidProfile, angleTrim, yawStickAsHoverRoll, horizonLevelStrength);
++        const float hoverPitch = pidLevel(FD_PITCH, pidProfile, angleTrim, getSetpointRate(FD_PITCH), horizonLevelStrength);
++        tailsitterSetpoint[FD_ROLL] = getSetpointRate(FD_ROLL);  // roll stick: spin (hover yaw = body roll)
++        tailsitterSetpoint[FD_PITCH] = hoverPitch;               // hover pitch = body pitch
++        tailsitterSetpoint[FD_YAW] = -hoverRoll;                 // hover roll = -body yaw
++    }
++#endif
++
+     // ----------PID controller----------
+     for (int axis = FD_ROLL; axis <= FD_YAW; ++axis) {
+ 
+@@ -1258,6 +1322,12 @@ void FAST_CODE pidController(const pidProfile_t *pidProfile, timeUs_t currentTim
+         // When Race Mode is active PITCH control is also GYRO based in level or horizon mode
+ #if defined(USE_ACC)
+         pidRuntime.axisInAngleMode[axis] = false;
++#if defined(USE_WING)
++        if (tailsitterHover) {
++            currentPidSetpoint = tailsitterSetpoint[axis];
++            pidRuntime.axisInAngleMode[axis] = axis != FD_ROLL;   // body roll is the hover yaw rate
++        } else
++#endif
+         if (axis < FD_YAW) {
+             if (levelMode == LEVEL_MODE_RP || (levelMode == LEVEL_MODE_R && axis == FD_ROLL)) {
+                 pidRuntime.axisInAngleMode[axis] = true;
+diff --git a/src/main/flight/pid.h b/src/main/flight/pid.h
+index 360a80537..7106f52db 100644
+--- a/src/main/flight/pid.h
++++ b/src/main/flight/pid.h
+@@ -323,6 +323,7 @@ typedef struct pidProfile_s {
+     int16_t tpa_speed_pitch_offset;     // For wings: pitch offset in degrees*10 for craft speed estimation
+     uint8_t yaw_type;                   // For wings: type of yaw (rudder or differential thrust)
+     int16_t angle_pitch_offset;         // For wings: pitch offset for angle modes; in decidegrees; positive values tilting the wing down
++    uint8_t angle_tailsitter;           // For tailsitters: ANGLE mode levels the nose-up hover attitude (see pid.c)
+ 
+     uint8_t chirp_lag_freq_hz;              // leadlag1Filter cutoff/pole to shape the excitation signal
+     uint8_t chirp_lead_freq_hz;             // leadlag1Filter cutoff/zero

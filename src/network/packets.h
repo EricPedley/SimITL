@@ -90,6 +90,7 @@ struct TailsitterInit {
                                  // negative = ahead of the wing)
   float motorZ = 0.0f;           // vertical offset of prop axis vs chord plane
   int32_t motorSpinDir[2] = {1, -1}; // spin direction about +x_a, {right, left}
+  int32_t motorIndex[2] = {0, 1};    // Betaflight motor output, {right, left}
   float thrustScale = 1.0f;      // multiplies prop thrust (unmeasured static
                                  // thrust correction, see FLIGHT_SIM_PLAN)
 

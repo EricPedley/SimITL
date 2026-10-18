@@ -111,6 +111,12 @@ inline void loadWingConfigInto(const std::string& path, StateInit& s) {
     ts.servoMaxUs     = (float)sv.get("maxUs").asNumber(ts.servoMaxUs);
   }
 
+  if (j.has("motorIndex")) {
+    auto mi = j.get("motorIndex");
+    ts.motorIndex[0] = mi.get("right").asInt(ts.motorIndex[0]);
+    ts.motorIndex[1] = mi.get("left").asInt(ts.motorIndex[1]);
+  }
+
   ts.fcYawDeg         = (float)j.get("fcYawDeg").asNumber(ts.fcYawDeg);
 
   // ---- shared propulsion / battery fields --------------------------------
