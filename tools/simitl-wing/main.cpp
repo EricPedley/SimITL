@@ -130,7 +130,11 @@ static bool  gProbe = false;
 static float gHoldUntil = -1.0f;   // freeze pose until t > this (clean start)
 static float gAux2 = 0.0f;         // --aux2: AUX2 (ch6), e.g. 1 = ANGLE mode
 static vec3  gKick{0.0f, 0.0f, 0.0f};   // --kick: world rate (rad/s) at release
-static bool  gArm = true;          // --noarm: never raise AUX1 (Betaflight
+static bool  gArm = true;
+static bool  gLevel = false;       // --level: start in level flight, nose +x
+static float gVel = 0.0f;          // --vel: airspeed (m/s) along the nose at release
+static float gThr2 = -2.0f;        // --thr2/--thr2-at: throttle step for speed changes
+static float gThr2At = 1e9f;          // --noarm: never raise AUX1 (Betaflight
                                    // refuses CLI/MSP config while armed)
 
 static void scheduleRc(float t, StateInput& in) {
@@ -143,6 +147,7 @@ static void scheduleRc(float t, StateInput& in) {
 
   if (t >= 5.5f && gArm) in.rcData[4] = 1.0f;   // arm
   if (t >= 6.5f) in.rcData[2] = gThrottle;   // some throttle
+  if (t >= gThr2At && gThr2 >= -1.0f) in.rcData[2] = gThr2;
   if (gProbe) {
     // distinctive per-channel values to map the FC channel order
     // ch0=+0.9, ch1=-0.7, ch2=-0.9, ch3=+0.5, ch4=+0.2, ch5=-0.3
@@ -183,6 +188,12 @@ static int runIdle(const std::string& wingPath, const std::string& eeprom,
   in.rotation[0] = { 1.0f, 0.0f, 0.0f};
   in.rotation[1] = { 0.0f, 0.0f, 1.0f};
   in.rotation[2] = { 0.0f,-1.0f, 0.0f};
+  if (gLevel) {   // level flight: nose +x, top up, port -z
+    in.rotation[0] = { 0.0f, 0.0f, 1.0f};
+    in.rotation[1] = { 0.0f, 1.0f, 0.0f};
+    in.rotation[2] = {-1.0f, 0.0f, 0.0f};
+    in.position.y = 50.0f;
+  }
   in.position = {0.0f, 2.0f, 0.0f};       // 2 m up
 
   simitl_init(si);
@@ -213,6 +224,9 @@ static int runIdle(const std::string& wingPath, const std::string& eeprom,
     } else if (wasHolding) {
       // first free step: start from the pose with the --kick disturbance
       in.angularVelocity = {gKick[0], gKick[1], gKick[2]};
+      // launch speed along the nose (sim body z = column 2 of the rows)
+      in.linearVelocity = {in.rotation[0].z * gVel, in.rotation[1].z * gVel,
+                           in.rotation[2].z * gVel};
     } else {
       // feed back orientation + velocities, integrate position host-side
       const quat q{o.orientation.x, o.orientation.y,
@@ -420,6 +434,10 @@ int main(int argc, char** argv) {
     else if (a == "--frozen") frozen = true;
     else if (a == "--nopulses") gPulses = false;
     else if (a == "--noarm") gArm = false;
+    else if (a == "--level") gLevel = true;
+    else if (a == "--vel") gVel = std::stof(val("vel"));
+    else if (a == "--thr2") gThr2 = std::stof(val("thr2"));
+    else if (a == "--thr2-at") gThr2At = std::stof(val("thr2-at"));
     else if (a == "--aux2") gAux2 = std::stof(val("aux2"));
     else if (a == "--kick") {
       std::string s = val("kick");
