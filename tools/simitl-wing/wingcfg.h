@@ -41,6 +41,8 @@ inline void loadWingConfigInto(const std::string& path, StateInit& s) {
   ts.tipChord         = (float)j.get("tipChord").asNumber(0.08);
   ts.rootHalfWidth    = (float)j.get("rootHalfWidth").asNumber(0.005);
   ts.leSweepDeg       = (float)j.get("leSweepDeg").asNumber(0.0);
+  ts.sweepC4Deg       = (float)j.get("quarterChordSweepDeg").asNumber(0.0);
+  ts.hingeSweepDeg    = (float)j.get("hingeSweepDeg").asNumber(0.0);
   ts.thicknessRatioRoot = (float)j.get("thicknessRatioRoot").asNumber(0.09);
   ts.thicknessRatioTip  = (float)j.get("thicknessRatioTip").asNumber(0.09);
 

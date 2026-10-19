@@ -282,32 +282,63 @@ namespace SimITL{
         v[0] += ts.slipstreamDevelopment * 2.0f * w;
       }
 
-      // normal-plane flow: drop the spanwise component for alpha/q
-      const float un = v[0];
+      // Simple sweep theory: the section sees the flow perpendicular to the
+      // strip's swept quarter-chord line (c-hat, z); flow along that line
+      // (s-hat) only adds skin friction.  The sweep is mirrored left/right,
+      // so sideslip loads the two halves differently -- the swept wing's
+      // roll-from-sideslip and weak directional stiffness.  The centre
+      // section (|y| < rootHalfWidth) is unswept.
+      const float lam = (ay > ts.rootHalfWidth) ? ts.sweepC4Deg * float(M_PI) / 180.0f : 0.0f;
+      const float side = (s.y > 0.0f) ? 1.0f : -1.0f;
+      const vec3 cHat{cosf(lam), side * sinf(lam), 0.0f};   // chordwise, forward
+      const vec3 sHat{-sinf(lam), side * cosf(lam), 0.0f};  // along the c/4 line, outboard
+      const vec3 zHat{0.0f, 0.0f, 1.0f};
+      const float un = dot(v, cHat);
       const float wn = v[2];
+      const float vs = dot(v, sHat);
       const float v2 = un * un + wn * wn;
-      const float alpha = atan2f(wn, un); // rad, (-180, 180]
 
-      // elevon contribution as an equivalent incidence shift:
-      // dCl = flapLiftSlope * eff * delta  ->  d(alpha_eff) = dCl / (2 pi)
+      // Flow from the trailing edge (un < 0): mirror the section.  The
+      // force then acts at 3/4 chord (the quarter chord of the reversed
+      // section), camber is ignored (flat plate), and the elevon is a
+      // leading-edge flap: thin-airfoil dCl/d(delta) = -2 (th - sin th) for
+      // a flap of (1 - xHinge) chord at the front -- weak and of opposite
+      // sign to the trailing-edge flap.
+      const bool reversed = un < 0.0f;
+      const float alpha = reversed ? atan2f(wn, -un) : atan2f(wn, un);
+
       float deltaRad = 0.0f;
       float flapLiftSlope = 0.0f;
       float flapMomentSlope = 0.0f;
       if (s.flapSide >= 0){
         const float deg = elevonDefl[s.flapSide];
-        const float th = acosf(clamp(1.0f - 2.0f * ts.xHinge,
-                                     -1.0f + 1e-9f, 1.0f - 1e-9f));
         const float excess = std::max(fabsf(deg) - ts.flapStallDeg, 0.0f);
         const float eff = ts.flapEffectiveness
                         * expf(-excess / (ts.flapSaturationDeg - ts.flapStallDeg));
-        flapLiftSlope = 2.0f * (float(M_PI) - th + sinf(th)) * eff;
-        flapMomentSlope = 0.25f * (sinf(2.0f * th) - 2.0f * sinf(th)) * eff;
         deltaRad = deg * float(M_PI) / 180.0f;
+        if (!reversed){
+          const float th = acosf(clamp(1.0f - 2.0f * ts.xHinge,
+                                       -1.0f + 1e-9f, 1.0f - 1e-9f));
+          flapLiftSlope = 2.0f * (float(M_PI) - th + sinf(th)) * eff;
+          flapMomentSlope = 0.25f * (sinf(2.0f * th) - 2.0f * sinf(th)) * eff;
+        } else {
+          const float th = acosf(clamp(1.0f - 2.0f * (1.0f - ts.xHinge),
+                                       -1.0f + 1e-9f, 1.0f - 1e-9f));
+          flapLiftSlope = -2.0f * (th - sinf(th)) * eff;
+        }
       }
 
-      const float alphaL0 = -0.5f * s.a1;
-      // positive elevon (TE down) adds lift: fold dCl into the effective
-      // incidence so stall behaviour carries over
+      // The section flow is normal to the c/4 line (dynamic pressure x
+      // cos^2 of the c/4 sweep), but the elevon rotates about its own hinge,
+      // whose effectiveness goes as cos^2 of the hinge sweep: rescale.
+      if (s.flapSide >= 0 && lam > 0.0f){
+        const float ch = cosf(ts.hingeSweepDeg * float(M_PI) / 180.0f) / cosf(lam);
+        flapLiftSlope *= ch * ch;
+        flapMomentSlope *= ch * ch;
+      }
+
+      const float alphaL0 = reversed ? 0.0f : -0.5f * s.a1;
+      // elevon as an equivalent incidence shift, so stall carries over
       const float alphaEff = alpha - alphaL0
                            + flapLiftSlope * deltaRad / (2.0f * float(M_PI));
 
@@ -317,21 +348,25 @@ namespace SimITL{
 
       float cl, cd, cm;
       sectionClCdCm(sc, alphaEff, cl, cd, cm);
-      // flap adds its thin-airfoil pitching moment about c/4
-      cm += flapMomentSlope * deltaRad;
+      cm = reversed ? 0.0f : cm + flapMomentSlope * deltaRad;
 
       const float q = 0.5f * TS_RHO * v2;
       const float dA = s.chord * s.dy;
 
-      // lift perpendicular to local flow (toward -z at alpha 0),
-      // drag along it
+      // lift perpendicular to the section flow, drag along it; in the
+      // mirrored section the chordwise axis is -c-hat
       const float sa = sinf(alpha), ca = cosf(alpha);
-      const vec3 fDir{-sa, 0.0f, -ca};   // lift direction (positive Cl)
-      const vec3 dDir{-ca, 0.0f, -sa};   // drag direction (opposes v_n)
+      const float xs = reversed ? -1.0f : 1.0f;
+      const vec3 fDir = cHat * (-sa * xs) + zHat * (-ca);
+      const vec3 dDir = cHat * (-ca * xs) + zHat * (-sa);
+      // spanwise skin friction: half the profile drag coefficient
+      const vec3 fSpan = sHat * (-0.5f * TS_RHO * fabsf(vs) * vs * 0.5f * ts.cd0 * dA);
 
-      const vec3 fStrip = fDir * (q * dA * cl) + dDir * (q * dA * cd);
+      const vec3 fStrip = fDir * (q * dA * cl) + dDir * (q * dA * cd) + fSpan;
+      const float xa = reversed ? 0.75f : 0.25f;
+      const vec3 rf{ts.cgX - (s.leX + xa * s.chord), s.y, 0.0f};
       F = F + fStrip;
-      M = M + cross(r, fStrip);
+      M = M + cross(rf, fStrip);
       M[1] += q * s.chord * s.chord * s.dy * cm; // nose-up positive, aero y
     }
 

@@ -64,6 +64,8 @@ struct TailsitterInit {
   float tipChord = 0.0f;
   float rootHalfWidth = 0.0f;    // semi-width of the constant-chord centre strip
   float leSweepDeg = 0.0f;       // leading edge sweep of the tapered panel
+  float sweepC4Deg = 0.0f;       // quarter-chord sweep, for sweep theory
+  float hingeSweepDeg = 0.0f;    // elevon hinge-line sweep (flap effectiveness)
   float thicknessRatioRoot = 0.0f;
   float thicknessRatioTip = 0.0f;
   // Birnbaum-Glauert camber coefficients, root and tip
