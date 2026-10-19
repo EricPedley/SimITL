@@ -110,6 +110,8 @@ struct TailsitterInit {
   float slipstreamDevelopment = 0.5f;
   float slipstreamWidthFactor = 1.0f;
   float propDiameter = 0.051f;
+  float propStoppedCd = 0.15f;   // drag of a stopped prop on its disk area
+                                 // (blended out as it spins up)
   float cd0 = 0.02f;             // section profile drag in the attached range
   float cdInduced = 0.0f;        // extra Cl^2 term; 0 -> 1/(pi*AR*e), e=0.85
   float cdmaxViterna = 0.0f;     // flat-plate drag ceiling; 0 -> 1.11+0.018*AR

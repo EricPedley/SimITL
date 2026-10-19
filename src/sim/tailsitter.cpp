@@ -590,23 +590,42 @@ namespace SimITL{
       const float mTorque = tsMotorTorque(volts, m.rpm, kV, R, I0);
       const float current = tsMotorCurrent(mTorque, kV);
 
-      // prop thrust: same quadratic form as Physics::propThrust
-      const float propF = std::max(0.0f,
-          init.propThrustFactor.x * vel * vel +
-          init.propThrustFactor.y * vel +
-          init.propThrustFactor.z);
+      // prop axial force: same quadratic form as Physics::propThrust, i.e.
+      // T = a rpm^2 + b rpm with b falling linearly with inflow (thrust
+      // coefficient linear in advance ratio).  Not clamped at zero: above
+      // its pitch speed the prop brakes, and its torque reverses so the
+      // airflow drives it (windmilling).
+      const float propF = init.propThrustFactor.x * vel * vel +
+                          init.propThrustFactor.y * vel +
+                          init.propThrustFactor.z;
       const float maxRpm = std::max(init.propMaxRpm, 0.01f);
-      const float b = (propF - init.propAFactor * maxRpm * maxRpm) / maxRpm;
-      float thrust = std::max(b * m.rpm + init.propAFactor * m.rpm * m.rpm, 0.0f);
-      thrust *= ts.thrustScale;
-      const float pTorque = thrust * init.propTorqueFactor;
+      const float a = init.propAFactor;
+      const float b = (propF - a * maxRpm * maxRpm) / maxRpm;
+      const float tLin = (b * m.rpm + a * m.rpm * m.rpm) * ts.thrustScale;
+      const float pTorque = tLin * init.propTorqueFactor;
 
+      // That form gives no force at rpm 0 whatever the airspeed.  A stopped
+      // prop is a drag plate: blend in its drag, full at rpm 0 and gone by
+      // the rpm where the linear thrust crosses zero.
+      float thrust = tLin;
+      const float rpmZero = (a > 0.0f) ? -b / a : 0.0f;
+      if (vel > 0.0f && rpmZero > 0.0f){
+        const float f = clamp(1.0f - m.rpm / rpmZero, 0.0f, 1.0f);
+        const float diskArea = 0.25f * float(M_PI) * ts.propDiameter * ts.propDiameter;
+        thrust -= 0.5f * TS_RHO * vel * vel * diskArea * ts.propStoppedCd * f * f;
+      }
+
+      // rpm step, implicit in the motor's back-EMF and the prop load (the
+      // old clamp to the no-load rpm also blocked windmilling past it)
       const float netTorque = mTorque - pTorque;
-      const float domega = netTorque / std::max(init.propInertia, 1e-8f);
-      const float drpm = (domega * static_cast<float>(dt)) * 60.0f
-                       / (2.0f * float(M_PI));
-      const float maxdrpm = fabsf(volts * kV - m.rpm);
-      m.rpm += clamp(drpm, -maxdrpm, maxdrpm);
+      const float J = std::max(init.propInertia, 1e-8f);
+      const float rpmPerNms = 60.0f / (2.0f * float(M_PI)) / J;   // rpm/s per N m
+      const float kMotor = 8.3f / (std::max(kV, 0.0001f) * std::max(kV, 0.0001f)
+                                   * std::max(R, 0.0001f));
+      const float kProp = (b + 2.0f * a * m.rpm) * ts.thrustScale * init.propTorqueFactor;
+      const float k = std::max(kMotor + kProp, 0.0f);              // -d(net)/d(rpm)
+      const float h = static_cast<float>(dt);
+      m.rpm += netTorque * rpmPerNms * h / (1.0f + rpmPerNms * k * h);
 
       m.current = current;
       m.mTorque = mTorque;

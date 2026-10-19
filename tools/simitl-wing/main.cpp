@@ -324,12 +324,14 @@ static int runReplay(const std::string& wingPath, const std::string& eeprom,
   in.rotation[1] = { 0.0f, 1.0f, 0.0f};
   in.rotation[2] = {-1.0f, 0.0f, 0.0f};
   in.position = {0.0f, 200.0f, 0.0f};
-  in.linearVelocity = {12.0f, 0.0f, 0.0f};
+  const float v0 = (gVel > 0.0f) ? gVel : 12.0f;   // --vel overrides
+  in.linearVelocity = {v0, 0.0f, 0.0f};
 
   simitl_init(si);
 
   fmt::print("t,armed,m0,m1,sv0,sv1,elevL,elevR,wx,wy,wz,vx,vy,vz,posx,posy,posz,"
-             "gyro0,gyro1,gyro2,pid0,pid1,pid2,rcCmd0,rcCmd1,rcCmd2,rcCmd3\n");
+             "gyro0,gyro1,gyro2,pid0,pid1,pid2,rcCmd0,rcCmd1,rcCmd2,rcCmd3,"
+             "r00,r01,r02,r10,r11,r12,r20,r21,r22,rpm0,rpm1\n");
 
   const float dt = in.delta;
   float t = 0.0f;
@@ -374,7 +376,7 @@ static int runReplay(const std::string& wingPath, const std::string& eeprom,
       in.position.z += o.linearVelocity.z * dt;
     } else {
       // release into cruise speed when boot ends
-      in.linearVelocity = {12.0f, 0.0f, 0.0f};
+      in.linearVelocity = {v0, 0.0f, 0.0f};
     }
 
     if (((int)(t * 1000.0f)) % 25 == 0) {   // 40 Hz log rate
@@ -382,7 +384,9 @@ static int runReplay(const std::string& wingPath, const std::string& eeprom,
                  "{:.3f},{:.3f},{:.3f},{:.2f},{:.2f},{:.2f},"
                  "{:.2f},{:.2f},{:.2f},"
                  "{:.1f},{:.1f},{:.1f},{:.1f},{:.1f},{:.1f},"
-                 "{:.0f},{:.0f},{:.0f},{:.0f}\n",
+                 "{:.0f},{:.0f},{:.0f},{:.0f},"
+                 "{:.4f},{:.4f},{:.4f},{:.4f},{:.4f},{:.4f},{:.4f},{:.4f},{:.4f},"
+                 "{:.0f},{:.0f}\n",
                  t, (int)o.armed, o.motorOutput[0], o.motorOutput[1],
                  o.servoOutput[0], o.servoOutput[1],
                  o.elevonDeg[0], o.elevonDeg[1],
@@ -393,7 +397,12 @@ static int runReplay(const std::string& wingPath, const std::string& eeprom,
                  o.fcGyro[0], o.fcGyro[1], o.fcGyro[2],
                  o.fcPidSum[0], o.fcPidSum[1], o.fcPidSum[2],
                  o.fcRcCommand[0], o.fcRcCommand[1],
-                 o.fcRcCommand[2], o.fcRcCommand[3]);
+                 o.fcRcCommand[2], o.fcRcCommand[3],
+                 // body->world rows, then per-side rpm
+                 in.rotation[0].x, in.rotation[0].y, in.rotation[0].z,
+                 in.rotation[1].x, in.rotation[1].y, in.rotation[1].z,
+                 in.rotation[2].x, in.rotation[2].y, in.rotation[2].z,
+                 o.motorRpm[0], o.motorRpm[1]);
     }
     t += dt;
   }

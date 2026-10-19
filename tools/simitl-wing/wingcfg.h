@@ -98,6 +98,7 @@ inline void loadWingConfigInto(const std::string& path, StateInit& s) {
     ts.numStrips      = a.get("numStrips").asInt(ts.numStrips);
   }
   ts.propDiameter     = (float)j.get("propDiameter").asNumber(ts.propDiameter);
+  ts.propStoppedCd    = (float)j.get("propStoppedCd").asNumber(ts.propStoppedCd);
 
   if (j.has("servo")) {
     auto sv = j.get("servo");
