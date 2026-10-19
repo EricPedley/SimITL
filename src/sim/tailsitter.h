@@ -61,6 +61,7 @@ namespace SimITL{
       };
 
       void buildStrips();
+      void buildDownwash();
       float inducedVelocity(float thrustN, float vInf, float diskArea) const;
       float clMaxFor(const Strip& s, float re) const;
       void sectionClCdCm(const Strip& s, float alphaEffRad,
@@ -75,6 +76,7 @@ namespace SimITL{
 
       SimState* mSimState = nullptr;
       std::vector<Strip> mStrips;
+      std::vector<float> mDownwash;   // n x n lifting-line influence (row-major)
       float mAspectRatio = 4.0f;
       float mWingArea = 0.0f;
       float mCdmax = 1.5f;

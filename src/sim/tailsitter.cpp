@@ -111,7 +111,49 @@ namespace SimITL{
                  ? (s.y < 0.0f ? 0 : 1) : -1;
       mStrips.push_back(s);
     }
+    buildDownwash();
   }
+
+  // z-velocity at (px, py) from a unit vortex segment a->b in the z = 0
+  // plane (Biot-Savart).
+  static float segmentW(float px, float py, float ax, float ay, float bx, float by){
+    const float r0x = bx - ax, r0y = by - ay;
+    const float r1x = px - ax, r1y = py - ay;
+    const float r2x = px - bx, r2y = py - by;
+    const float cr = r1x * r2y - r1y * r2x;
+    const float n1 = sqrtf(r1x * r1x + r1y * r1y), n2 = sqrtf(r2x * r2x + r2y * r2y);
+    if (cr * cr < 1e-12f || n1 < 1e-9f || n2 < 1e-9f) return 0.0f;
+    const float d = r0x * (r1x / n1 - r2x / n2) + r0y * (r1y / n1 - r2y / n2);
+    return cr / (cr * cr) * d / (4.0f * float(M_PI));
+  }
+
+  // Discrete Prandtl lifting line: downwash (aero +z) on the lifting line at
+  // strip i per unit circulation on strip j's horseshoe (bound along the
+  // span, trailing legs aft).  Laid out on the *unswept* planform: the
+  // sections already apply sweep theory, so this adds only the finite-span
+  // downwash.  On the bound line only the trailing legs contribute; the 2D
+  // section curve already carries the bound vortex's own effect.
+  void TailsitterPhysics::buildDownwash(){
+    const size_t n = mStrips.size();
+    const float far = 1000.0f;
+    mDownwash.assign(n * n, 0.0f);
+    float trace = 0.0f;
+    for (size_t i = 0; i < n; i++){
+      const float py = mStrips[i].y;
+      for (size_t j = 0; j < n; j++){
+        const float ay = mStrips[j].y - 0.5f * mStrips[j].dy;
+        const float by = mStrips[j].y + 0.5f * mStrips[j].dy;
+        mDownwash[i * n + j] = segmentW(0.0f, py, -far, ay, 0.0f, ay)
+                             + segmentW(0.0f, py, 0.0f, ay, 0.0f, by)
+                             + segmentW(0.0f, py, 0.0f, by, -far, by);
+      }
+      trace += mDownwash[i * n + i];
+    }
+    // positive circulation (lift) must wash its own strip down
+    if (trace < 0.0f) for (float& k : mDownwash) k = -k;
+  }
+
+
 
   void TailsitterPhysics::updateCommands(CommandType commands){
     switch (commands){
@@ -223,19 +265,23 @@ namespace SimITL{
     const float sgn = (ae >= 0.0f) ? 1.0f : -1.0f;
     const float aAbs = fabsf(ae);
 
+    // no Cl^2/(pi A e) term: induced drag comes from the lifting line (each
+    // strip's lift is tilted back by its induced angle)
     if (aAbs <= aS){
       cl = slope * ae;
-      const float kInd = (ts.cdInduced > 0.0f)
-        ? ts.cdInduced
-        : 1.0f / (float(M_PI) * mAspectRatio * 0.85f);
-      cd = ts.cd0 + kInd * cl * cl;
+      cd = ts.cd0;
     } else {
       // flat-plate post-stall: attached Cl_s continued as a scaled sin(2a),
       // Cd blended from its stall value to CDmax at 90 deg and back down.
       const float clS = clMax;                    // CL at stall (signed below)
-      const float cdS = ts.cd0 + 1.0f / (float(M_PI) * mAspectRatio * 0.85f)
-                        * clS * clS;
-      cl = sgn * clS * sinf(2.0f * aAbs) / sinf(2.0f * aS);
+      const float cdS = ts.cd0;
+      // Viterna-Corrigan: flat-plate 1/2 Cdmax sin 2a plus a term that
+      // matches cl_s at the stall angle and decays (cl used to be
+      // cl_s sin 2a / sin 2a_s, peaking ~3x cl_s at 45 deg)
+      const float a2 = (clS - mCdmax * sinf(aS) * cosf(aS)) * sinf(aS)
+                     / (cosf(aS) * cosf(aS));
+      cl = sgn * (0.5f * mCdmax * sinf(2.0f * aAbs)
+                  + a2 * cosf(aAbs) * cosf(aAbs) / std::max(sinf(aAbs), 1e-6f));
       const float s2 = sinf(aAbs) * sinf(aAbs);
       const float s2s = sinf(aS) * sinf(aS);
       cd = cdS + (mCdmax - cdS) * (s2 - s2s) / std::max(1.0f - s2s, 1e-6f);
@@ -264,12 +310,18 @@ namespace SimITL{
     const float halfWash = 0.5f * ts.slipstreamWidthFactor * ts.propDiameter;
     const float elevonDefl[2] = {elevonDegL, elevonDegR};
 
-    vec3 F{0.0f, 0.0f, 0.0f};
-    vec3 M{0.0f, 0.0f, 0.0f};
-
-    for (const Strip& s : mStrips){
-      // strip quarter-chord point relative to CG, aerospace frame:
-      // x_a = cgX - x_station_aft
+    // --- pass 1: per-strip flow and section parameters ----------------------
+    struct StripFlow {
+      vec3 cHat, sHat;
+      float vs, v2, vn, alpha, shift, flapM, clMax;
+      bool reversed;
+    };
+    const size_t n = mStrips.size();
+    std::vector<StripFlow> st(n);
+    for (size_t k = 0; k < n; k++){
+      const Strip& s = mStrips[k];
+      StripFlow& q = st[k];
+      // strip quarter-chord point relative to CG, aerospace frame
       const vec3 r{ts.cgX - (s.leX + 0.25f * s.chord), s.y, 0.0f};
       vec3 v = vA + cross(wA, r);
 
@@ -290,13 +342,13 @@ namespace SimITL{
       // section (|y| < rootHalfWidth) is unswept.
       const float lam = (ay > ts.rootHalfWidth) ? ts.sweepC4Deg * float(M_PI) / 180.0f : 0.0f;
       const float side = (s.y > 0.0f) ? 1.0f : -1.0f;
-      const vec3 cHat{cosf(lam), side * sinf(lam), 0.0f};   // chordwise, forward
-      const vec3 sHat{-sinf(lam), side * cosf(lam), 0.0f};  // along the c/4 line, outboard
-      const vec3 zHat{0.0f, 0.0f, 1.0f};
-      const float un = dot(v, cHat);
+      q.cHat = vec3{cosf(lam), side * sinf(lam), 0.0f};   // chordwise, forward
+      q.sHat = vec3{-sinf(lam), side * cosf(lam), 0.0f};  // along the c/4 line, outboard
+      const float un = dot(v, q.cHat);
       const float wn = v[2];
-      const float vs = dot(v, sHat);
-      const float v2 = un * un + wn * wn;
+      q.vs = dot(v, q.sHat);
+      q.v2 = un * un + wn * wn;
+      q.vn = sqrtf(q.v2);
 
       // Flow from the trailing edge (un < 0): mirror the section.  The
       // force then acts at 3/4 chord (the quarter chord of the reversed
@@ -304,8 +356,8 @@ namespace SimITL{
       // leading-edge flap: thin-airfoil dCl/d(delta) = -2 (th - sin th) for
       // a flap of (1 - xHinge) chord at the front -- weak and of opposite
       // sign to the trailing-edge flap.
-      const bool reversed = un < 0.0f;
-      const float alpha = reversed ? atan2f(wn, -un) : atan2f(wn, un);
+      q.reversed = un < 0.0f;
+      q.alpha = q.reversed ? atan2f(wn, -un) : atan2f(wn, un);
 
       float deltaRad = 0.0f;
       float flapLiftSlope = 0.0f;
@@ -316,7 +368,7 @@ namespace SimITL{
         const float eff = ts.flapEffectiveness
                         * expf(-excess / (ts.flapSaturationDeg - ts.flapStallDeg));
         deltaRad = deg * float(M_PI) / 180.0f;
-        if (!reversed){
+        if (!q.reversed){
           const float th = acosf(clamp(1.0f - 2.0f * ts.xHinge,
                                        -1.0f + 1e-9f, 1.0f - 1e-9f));
           flapLiftSlope = 2.0f * (float(M_PI) - th + sinf(th)) * eff;
@@ -327,7 +379,6 @@ namespace SimITL{
           flapLiftSlope = -2.0f * (th - sinf(th)) * eff;
         }
       }
-
       // The section flow is normal to the c/4 line (dynamic pressure x
       // cos^2 of the c/4 sweep), but the elevon rotates about its own hinge,
       // whose effectiveness goes as cos^2 of the hinge sweep: rescale.
@@ -336,38 +387,92 @@ namespace SimITL{
         flapLiftSlope *= ch * ch;
         flapMomentSlope *= ch * ch;
       }
-
-      const float alphaL0 = reversed ? 0.0f : -0.5f * s.a1;
+      const float alphaL0 = q.reversed ? 0.0f : -0.5f * s.a1;
       // elevon as an equivalent incidence shift, so stall carries over
-      const float alphaEff = alpha - alphaL0
-                           + flapLiftSlope * deltaRad / (2.0f * float(M_PI));
+      q.shift = flapLiftSlope * deltaRad / (2.0f * float(M_PI)) - alphaL0;
+      q.flapM = flapMomentSlope * deltaRad;
+      const float re = TS_RHO * q.vn * s.chord / TS_MU;
+      q.clMax = clMaxFor(s, re);
+    }
 
+    // --- pass 2: lifting line --------------------------------------------------
+    // One linear solve for the circulation: gamma_i = 1/2 c_i 2pi (vfl_i
+    // alpha_c,i - (K gamma)_i), with each strip's angle clamped to its stall
+    // angle.  Exact lifting line in attached flow; in stall the downwash is
+    // that of stall-level lift (a nonlinear post-stall lifting line has
+    // multiple solutions and Newton wanders between them).  Reversed-flow
+    // strips carry no circulation.  vfl = max(Vn, 0.5).
+    std::vector<float> gamma(n, 0.0f), aInd(n, 0.0f), vfl(n), A(n * n, 0.0f);
+    for (size_t i = 0; i < n; i++){
+      vfl[i] = std::max(st[i].vn, 0.5f);
+      A[i * n + i] = 1.0f;
+      if (st[i].reversed) continue;
+      const float aS = st[i].clMax / (2.0f * float(M_PI));
+      const float aC = clamp(st[i].alpha + st[i].shift, -aS, aS);
+      const float g = 0.5f * mStrips[i].chord * 2.0f * float(M_PI);
+      for (size_t j = 0; j < n; j++) A[i * n + j] += g * mDownwash[i * n + j];
+      gamma[i] = g * vfl[i] * aC;                      // right-hand side
+    }
+    // Gaussian elimination with partial pivoting: A gamma = rhs, in place
+    for (size_t c = 0; c < n; c++){
+      size_t piv = c;
+      for (size_t r2 = c + 1; r2 < n; r2++)
+        if (fabsf(A[r2 * n + c]) > fabsf(A[piv * n + c])) piv = r2;
+      if (piv != c){
+        for (size_t k2 = 0; k2 < n; k2++) std::swap(A[c * n + k2], A[piv * n + k2]);
+        std::swap(gamma[c], gamma[piv]);
+      }
+      const float d = A[c * n + c];
+      for (size_t r2 = c + 1; r2 < n; r2++){
+        const float f = A[r2 * n + c] / d;
+        if (f == 0.0f) continue;
+        for (size_t k2 = c; k2 < n; k2++) A[r2 * n + k2] -= f * A[c * n + k2];
+        gamma[r2] -= f * gamma[c];
+      }
+    }
+    for (size_t c = n; c-- > 0;){
+      float acc = gamma[c];
+      for (size_t k2 = c + 1; k2 < n; k2++) acc -= A[c * n + k2] * gamma[k2];
+      gamma[c] = acc / A[c * n + c];
+    }
+    for (size_t i = 0; i < n; i++){
+      if (st[i].reversed) continue;
+      float w = 0.0f;
+      for (size_t j = 0; j < n; j++) w += mDownwash[i * n + j] * gamma[j];
+      aInd[i] = w / vfl[i];
+    }
+
+    // --- pass 3: forces, lift perpendicular to the downwashed inflow --------
+    vec3 F{0.0f, 0.0f, 0.0f};
+    vec3 M{0.0f, 0.0f, 0.0f};
+    const vec3 zHat{0.0f, 0.0f, 1.0f};
+    for (size_t k = 0; k < n; k++){
+      const Strip& s = mStrips[k];
+      const StripFlow& q = st[k];
+      const float aFlow = q.alpha - aInd[k];
       Strip sc = s;
-      const float re = TS_RHO * sqrtf(v2) * s.chord / TS_MU;
-      sc.clMax = clMaxFor(s, re);
-
+      sc.clMax = q.clMax;
       float cl, cd, cm;
-      sectionClCdCm(sc, alphaEff, cl, cd, cm);
-      cm = reversed ? 0.0f : cm + flapMomentSlope * deltaRad;
-
-      const float q = 0.5f * TS_RHO * v2;
+      sectionClCdCm(sc, aFlow + q.shift, cl, cd, cm);
+      cm = q.reversed ? 0.0f : cm + q.flapM;
+      const float qd = 0.5f * TS_RHO * q.v2;
       const float dA = s.chord * s.dy;
-
-      // lift perpendicular to the section flow, drag along it; in the
-      // mirrored section the chordwise axis is -c-hat
-      const float sa = sinf(alpha), ca = cosf(alpha);
-      const float xs = reversed ? -1.0f : 1.0f;
-      const vec3 fDir = cHat * (-sa * xs) + zHat * (-ca);
-      const vec3 dDir = cHat * (-ca * xs) + zHat * (-sa);
+      // lift perpendicular to the relative wind (-cos a, -sin a in the
+      // section plane): (+sin a, -cos a), mirrored for reversed flow; drag
+      // along the wind.  (The model used to have -sin a in the lift term,
+      // tilting lift back by 2 alpha.)
+      const float sa = sinf(aFlow), ca = cosf(aFlow);
+      const float xs = q.reversed ? -1.0f : 1.0f;
+      const vec3 fDir = q.cHat * (sa * xs) + zHat * (-ca);
+      const vec3 dDir = q.cHat * (-ca * xs) + zHat * (-sa);
       // spanwise skin friction: half the profile drag coefficient
-      const vec3 fSpan = sHat * (-0.5f * TS_RHO * fabsf(vs) * vs * 0.5f * ts.cd0 * dA);
-
-      const vec3 fStrip = fDir * (q * dA * cl) + dDir * (q * dA * cd) + fSpan;
-      const float xa = reversed ? 0.75f : 0.25f;
+      const vec3 fSpan = q.sHat * (-0.5f * TS_RHO * fabsf(q.vs) * q.vs * 0.5f * ts.cd0 * dA);
+      const vec3 fStrip = fDir * (qd * dA * cl) + dDir * (qd * dA * cd) + fSpan;
+      const float xa = q.reversed ? 0.75f : 0.25f;
       const vec3 rf{ts.cgX - (s.leX + xa * s.chord), s.y, 0.0f};
       F = F + fStrip;
       M = M + cross(rf, fStrip);
-      M[1] += q * s.chord * s.chord * s.dy * cm; // nose-up positive, aero y
+      M[1] += qd * s.chord * s.chord * s.dy * cm; // nose-up positive, aero y
     }
 
     outForceAero = F;
